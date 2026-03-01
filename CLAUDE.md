@@ -79,6 +79,7 @@ All implementation work follows the SOW-first pattern:
 
 **Never implement without an approved SOW. Never implement an SOW without the agent.**
 **Never submit a SOW with design layer YAML without an OT domain review.**
+**SOW drafting and SOW implementation are separate sessions.** Do not draft and implement in the same context window -- context compaction increases hallucination risk.
 
 ## Key Principles
 

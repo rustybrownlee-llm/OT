@@ -1,0 +1,43 @@
+# slc-500-05.yaml - Allen-Bradley SLC 500-05 PLC Device Atom
+# Stub definition for SOW-000.1. Full device profile deferred to SOW-001.0.
+# The SLC 500-05 is a legacy serial PLC from the early 1990s, accessed via RS-485
+# through a Moxa gateway. Represents the legacy manufacturing floor equipment.
+schema_version: "0.1"
+
+device:
+  id: "slc-500-05"
+  vendor: "Allen-Bradley"
+  model: "SLC 500-05"
+  category: "plc"              # plc | gateway | hmi | sensor | relay | safety-controller
+  vintage: 1992
+  description: "Legacy serial PLC, manufacturing floor Line A. Accessed via Moxa gateway over RS-485."
+
+connectivity:
+  ports:
+    - type: "rs485"
+      protocols: ["modbus-rtu"]
+  response_delay_ms: 50        # Slow: serial RTT + legacy processing overhead
+  response_jitter_ms: 20
+  concurrent_connections: 1    # Serial: one active connection at a time
+
+# PROTOTYPE-DEBT: [td-devices-002] slc-500-05 register capabilities are stubs.
+# Full register map research deferred to SOW-001.0.
+registers:
+  max_holding: 256
+  max_coils: 256
+  max_input_registers: 256
+  max_discrete_inputs: 256
+  addressing: "one-based"      # SLC 500 uses one-based Modbus addressing
+  float_byte_order: "little-endian"
+  max_registers_per_read: 60
+
+register_map_variants:
+  mfg-line-a: {}               # Placeholder: register map deferred to SOW-001.0
+
+diagnostics:
+  web_server: false
+  web_port: 0
+  snmp: false
+  syslog: false
+  fault_log: true
+  fault_log_depth: 10

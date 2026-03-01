@@ -1,0 +1,16 @@
+# wt-level3.yaml - Water Treatment Level 3 Network Atom
+# Site Operations network: SCADA server, engineering workstation, historian.
+# Managed switch with SPAN capability enables passive monitoring on this segment.
+schema_version: "0.1"
+
+network:
+  id: "wt-level3"
+  name: "Water Treatment Level 3"
+  type: "ethernet"             # ethernet | serial-rs485 | serial-rs232
+  description: "Site Operations - SCADA server and engineering workstation"
+
+properties:
+  subnet: "10.10.30.0/24"
+  vlan: 30
+  managed_switch: true         # Supports SPAN port for passive monitoring
+  span_capable: true           # Dragos or Zeek can observe this segment

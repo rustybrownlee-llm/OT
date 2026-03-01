@@ -76,8 +76,8 @@ services:
   # Plant simulator: hosts all virtual PLCs and process simulation
   plant:
     build:
-      context: ./plant
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: plant/Dockerfile
     container_name: ot-plant
     restart: unless-stopped
     networks:
@@ -103,7 +103,7 @@ services:
       # HMI - manufacturing floor (Windows XP Wonderware-style)
       - "8081:8081"
     volumes:
-      - ./plant/config:/config:ro
+      - ./design:/design:ro
     environment:
       - OTS_LOG_LEVEL=info
     labels:

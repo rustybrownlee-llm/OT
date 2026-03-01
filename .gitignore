@@ -1,6 +1,8 @@
 # Binaries
 plant/bin/
+plant/plant
 monitoring/bin/
+monitoring/monitor
 poc/bin/
 
 # Runtime output

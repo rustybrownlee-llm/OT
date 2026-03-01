@@ -1,0 +1,15 @@
+# mfg-serial-bus.yaml - Manufacturing Floor RS-485 Serial Bus Network Atom
+# RS-485 multidrop bus connecting legacy serial PLCs behind the Moxa gateway.
+# Devices on this network are invisible to IP-based tools -- only the gateway is visible.
+# This models the serial-to-Ethernet transparency boundary (ADR-003).
+schema_version: "0.1"
+
+network:
+  id: "mfg-serial-bus"
+  name: "Manufacturing Floor RS-485 Serial Bus"
+  type: "serial-rs485"         # ethernet | serial-rs485 | serial-rs232
+  description: "RS-485 multidrop bus behind Moxa gateway - PLCs invisible to network tools"
+
+properties:
+  managed_switch: false        # Serial bus: no switch, no monitoring tap point
+  span_capable: false          # No passive monitoring -- gateway is the only IP endpoint

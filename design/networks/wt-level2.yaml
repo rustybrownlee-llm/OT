@@ -1,0 +1,16 @@
+# wt-level2.yaml - Water Treatment Level 2 Network Atom
+# Area Supervisory Control network: HMI operator stations and local historian.
+# Managed switch with SPAN capability enables passive monitoring on this segment.
+schema_version: "0.1"
+
+network:
+  id: "wt-level2"
+  name: "Water Treatment Level 2"
+  type: "ethernet"             # ethernet | serial-rs485 | serial-rs232
+  description: "Area Supervisory Control - HMI operator stations"
+
+properties:
+  subnet: "10.10.20.0/24"
+  vlan: 20
+  managed_switch: true         # Supports SPAN port for passive monitoring
+  span_capable: true           # Dragos or Zeek can observe this segment

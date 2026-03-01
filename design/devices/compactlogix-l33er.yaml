@@ -1,0 +1,143 @@
+# compactlogix-l33er.yaml - Allen-Bradley CompactLogix 5380 L33ER Device Atom
+# Describes what this device type is and what it can do, independent of deployment role.
+# Per ADR-009 D3: register capabilities define capacity; register_map_variants define role-specific layouts.
+schema_version: "0.1"
+
+device:
+  id: "compactlogix-l33er"
+  vendor: "Allen-Bradley"
+  model: "CompactLogix 5380 L33ER"
+  category: "plc"              # plc | gateway | hmi | sensor | relay | safety-controller
+  vintage: 2024
+  description: "Modern Ethernet-native PLC for water treatment Level 1"
+
+connectivity:
+  ports:
+    - type: "ethernet"
+      protocols: ["modbus-tcp"]
+    - type: "rs485"
+      protocols: ["modbus-rtu"]
+  response_delay_ms: 5         # Typical: 2-10ms for a modern PLC
+  response_jitter_ms: 3        # Small timing variation
+  concurrent_connections: 10   # Ethernet-native supports multiple simultaneous clients
+
+# Register capabilities define what this device type supports in terms of address space.
+# These are hardware limits -- not role-specific register assignments.
+# Named register maps (e.g., "water-intake") are in register_map_variants below.
+registers:
+  max_holding: 4096
+  max_coils: 2048
+  max_input_registers: 4096
+  max_discrete_inputs: 2048
+  addressing: "zero-based"
+  float_byte_order: "big-endian"   # Network byte order (Modbus standard)
+  max_registers_per_read: 125      # Modbus spec maximum
+
+# Register map variants define role-specific register layouts.
+# The same device type serves different roles by loading different variants.
+# Each variant must stay within the register capabilities declared above.
+# The environment template selects a variant via register_map_variant in the placement.
+# If no variant is specified, the device exposes empty registers within its capacity.
+register_map_variants:
+  water-intake:
+    # Intake PLC: controls raw water pumps and measures intake flow.
+    # Conventions: 16-bit scaled integers (0=scale_min, 32767=scale_max).
+    holding:
+      - address: 0
+        name: "intake_flow_rate"
+        description: "Raw water intake flow rate"
+        unit: "L/s"
+        scale_min: 0.0
+        scale_max: 100.0
+        writable: false
+      - address: 1
+        name: "intake_pump_speed"
+        description: "Intake pump speed setpoint (0-100%)"
+        unit: "%"
+        scale_min: 0.0
+        scale_max: 100.0
+        writable: true
+      - address: 2
+        name: "ph_level"
+        description: "Process water pH"
+        unit: "pH"
+        scale_min: 0.0
+        scale_max: 14.0
+        writable: false
+      - address: 3
+        name: "chlorine_residual"
+        description: "Chlorine residual concentration"
+        unit: "mg/L"
+        scale_min: 0.0
+        scale_max: 5.0
+        writable: false
+      - address: 4
+        name: "turbidity"
+        description: "Water turbidity"
+        unit: "NTU"
+        scale_min: 0.0
+        scale_max: 10.0
+        writable: false
+    coils:
+      - address: 0
+        name: "intake_pump_01_run"
+        description: "Intake pump 1 run command (0=stop, 1=run)"
+        writable: true
+      - address: 1
+        name: "intake_pump_02_run"
+        description: "Intake pump 2 run command (0=stop, 1=run)"
+        writable: true
+      - address: 2
+        name: "dosing_pump_chlorine_run"
+        description: "Chlorine dosing pump run command"
+        writable: true
+      - address: 3
+        name: "filter_backwash_active"
+        description: "Filter backwash cycle in progress (read-only status)"
+        writable: false
+
+  water-distribution:
+    # Distribution PLC: controls clear well pumps and distribution flow.
+    holding:
+      - address: 0
+        name: "clear_well_level"
+        description: "Clear well water level"
+        unit: "%"
+        scale_min: 0.0
+        scale_max: 100.0
+        writable: false
+      - address: 1
+        name: "distribution_flow_rate"
+        description: "Outbound distribution flow rate"
+        unit: "L/s"
+        scale_min: 0.0
+        scale_max: 150.0
+        writable: false
+      - address: 2
+        name: "distribution_pressure"
+        description: "Distribution header pressure"
+        unit: "kPa"
+        scale_min: 0.0
+        scale_max: 700.0
+        writable: false
+    coils:
+      - address: 0
+        name: "distribution_pump_01_run"
+        description: "Distribution pump 1 run command (0=stop, 1=run)"
+        writable: true
+      - address: 1
+        name: "distribution_pump_02_run"
+        description: "Distribution pump 2 run command (0=stop, 1=run)"
+        writable: true
+      - address: 2
+        name: "booster_pump_run"
+        description: "Booster pump run command for cross-plant supply"
+        writable: true
+
+diagnostics:
+  web_server: true
+  web_port: 80
+  snmp: false
+  syslog: false
+  fault_log: true
+  fault_log_depth: 100

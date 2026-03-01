@@ -1,0 +1,43 @@
+# moxa-nport-5150.yaml - Moxa NPort 5150 Serial-to-Ethernet Gateway Device Atom
+# Stub definition for SOW-000.1. Full device profile deferred to SOW-001.0.
+# The NPort 5150 bridges one RS-232/RS-485 serial port to Ethernet via Modbus TCP.
+schema_version: "0.1"
+
+device:
+  id: "moxa-nport-5150"
+  vendor: "Moxa"
+  model: "NPort 5150"
+  category: "gateway"          # plc | gateway | hmi | sensor | relay | safety-controller
+  vintage: 2010
+  description: "Serial-to-Ethernet device server bridging RS-485 PLCs to Modbus TCP"
+
+connectivity:
+  ports:
+    - type: "ethernet"
+      protocols: ["modbus-tcp"]
+    - type: "rs485"
+      protocols: ["modbus-rtu"]
+  response_delay_ms: 15        # Serial RTT overhead: 10-20ms typical
+  response_jitter_ms: 10
+  concurrent_connections: 4    # Limited by serial port serialization
+
+# PROTOTYPE-DEBT: [td-devices-001] moxa-nport-5150 register capabilities are stubs.
+# Full register map research deferred to SOW-001.0.
+registers:
+  max_holding: 125
+  max_coils: 0
+  max_input_registers: 125
+  max_discrete_inputs: 0
+  addressing: "zero-based"
+  float_byte_order: "big-endian"
+  max_registers_per_read: 125
+
+register_map_variants: {}
+
+diagnostics:
+  web_server: true
+  web_port: 80
+  snmp: true
+  syslog: false
+  fault_log: false
+  fault_log_depth: 0

@@ -1,0 +1,44 @@
+# modicon-984.yaml - Schneider Electric Modicon 984 PLC Device Atom
+# Stub definition for SOW-000.1. Full device profile deferred to SOW-001.0.
+# The Modicon 984 is a legacy serial PLC from the 1980s-1990s. It is the origin
+# of the Modbus protocol (Modbus was created by Modicon in 1979). Accessed via
+# RS-485 through a Moxa gateway on the manufacturing floor.
+schema_version: "0.1"
+
+device:
+  id: "modicon-984"
+  vendor: "Schneider Electric"
+  model: "Modicon 984"
+  category: "plc"              # plc | gateway | hmi | sensor | relay | safety-controller
+  vintage: 1988
+  description: "Legacy serial PLC, manufacturing floor cooling system. Modbus protocol origin device."
+
+connectivity:
+  ports:
+    - type: "rs485"
+      protocols: ["modbus-rtu"]
+  response_delay_ms: 80        # Very slow: 1980s processing overhead
+  response_jitter_ms: 30
+  concurrent_connections: 1    # Serial: one active connection at a time
+
+# PROTOTYPE-DEBT: [td-devices-003] modicon-984 register capabilities are stubs.
+# Full register map research deferred to SOW-001.0.
+registers:
+  max_holding: 256
+  max_coils: 256
+  max_input_registers: 256
+  max_discrete_inputs: 256
+  addressing: "one-based"      # Modicon 984 uses one-based Modbus addressing
+  float_byte_order: "little-endian"
+  max_registers_per_read: 60
+
+register_map_variants:
+  mfg-cooling: {}              # Placeholder: register map deferred to SOW-001.0
+
+diagnostics:
+  web_server: false
+  web_port: 0
+  snmp: false
+  syslog: false
+  fault_log: false
+  fault_log_depth: 0

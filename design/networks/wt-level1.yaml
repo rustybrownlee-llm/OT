@@ -1,0 +1,16 @@
+# wt-level1.yaml - Water Treatment Level 1 Network Atom
+# Basic Process Control network: PLCs, I/O modules, field instrumentation.
+# Managed switch with SPAN capability enables passive monitoring on this segment.
+schema_version: "0.1"
+
+network:
+  id: "wt-level1"
+  name: "Water Treatment Level 1"
+  type: "ethernet"             # ethernet | serial-rs485 | serial-rs232
+  description: "Basic Process Control - PLCs and I/O modules"
+
+properties:
+  subnet: "10.10.10.0/24"
+  vlan: 10
+  managed_switch: true         # Supports SPAN port for passive monitoring
+  span_capable: true           # Dragos or Zeek can observe this segment

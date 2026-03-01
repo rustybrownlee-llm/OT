@@ -1,0 +1,16 @@
+# cross-plant.yaml - Cross-Plant Direct Link Network Atom
+# Direct Ethernet link between the water treatment plant and the manufacturing floor.
+# No firewall, no segmentation -- models the dangerous real-world default.
+# This is the primary attack path between the two facilities in training scenarios.
+schema_version: "0.1"
+
+network:
+  id: "cross-plant"
+  name: "Cross-Plant Direct Link"
+  type: "ethernet"             # ethernet | serial-rs485 | serial-rs232
+  description: "Direct Ethernet link between water treatment and manufacturing (no firewall)"
+
+properties:
+  subnet: "172.16.0.0/30"
+  managed_switch: false        # Direct cable or unmanaged switch -- no SPAN capability
+  span_capable: false          # No passive monitoring without TAP insertion

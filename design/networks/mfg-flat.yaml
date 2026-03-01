@@ -1,0 +1,16 @@
+# mfg-flat.yaml - Manufacturing Floor Flat Network Atom
+# Legacy flat network circa 1993: no VLANs, no segmentation, unmanaged switch.
+# No SPAN capability -- passive monitoring tools cannot observe this segment.
+# This models a common real-world legacy OT visibility gap.
+schema_version: "0.1"
+
+network:
+  id: "mfg-flat"
+  name: "Manufacturing Floor Flat Network"
+  type: "ethernet"             # ethernet | serial-rs485 | serial-rs232
+  description: "Legacy flat network - no VLANs, no segmentation, unmanaged switch"
+
+properties:
+  subnet: "192.168.1.0/24"
+  managed_switch: false        # Unmanaged switch: no SPAN port, no port mirroring
+  span_capable: false          # Passive monitoring tools cannot observe this segment

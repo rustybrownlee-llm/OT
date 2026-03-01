@@ -8,10 +8,10 @@ Simulated Operational Technology environment for training IT engineers on OT/ICS
 
 ## Current State
 
-- **Phase**: Foundation complete -- ready for first feature SOW
-- **Last completed**: SOW-000.0 Project Initialization (all 12 success criteria passing)
-- **Stats**: 8 ADRs, 1 SOW complete
-- **Next work**: SOW-001.0 (Modbus TCP implementation)
+- **Phase**: Foundation complete with design layer -- ready for first feature SOW
+- **Last completed**: SOW-000.1 Design Layer Pivot (all 13 success criteria passing)
+- **Stats**: 9 ADRs, 2 SOWs complete (000.0, 000.1)
+- **Next work**: SOW-001.0 (Modbus TCP + generalized topology engine)
 - **Blockers**: None
 
 ## Project Structure (Non-Standard)
@@ -63,7 +63,7 @@ Extends the shared Go stack with these project-specific technologies:
 ## Configuration
 
 - **Environment variable prefix**: `OTS_` (OT Simulator)
-- **Config location**: `plant/config/` and `monitoring/config/`
+- **Config location**: `design/` (topology), `monitoring/config/` (monitoring runtime)
 - **Config format**: YAML only
 - **Port assignments** (simulation defaults, non-privileged):
 

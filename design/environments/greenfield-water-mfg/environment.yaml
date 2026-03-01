@@ -1,0 +1,90 @@
+# environment.yaml - Greenfield Water and Manufacturing Facility
+# Reference environment for OT security training scenarios.
+# Dual-network facility: modern water treatment plant (Purdue model) connected
+# to a legacy manufacturing floor (flat network, circa 1993).
+# This is the primary training environment for all Phase 1 scenarios.
+schema_version: "0.1"
+
+environment:
+  id: "greenfield-water-mfg"
+  name: "Greenfield Water and Manufacturing Facility"
+  description: "Dual-network facility with modern water treatment (Purdue model) and legacy manufacturing floor (flat network, circa 1993)"
+
+# All networks used by placements in this environment must be listed here.
+# Serial buses are networks too -- they just have no subnet property.
+networks:
+  - ref: "wt-level3"
+  - ref: "wt-level2"
+  - ref: "wt-level1"
+  - ref: "mfg-flat"
+  - ref: "mfg-serial-bus"
+  - ref: "cross-plant"
+
+# Placements wire device atoms onto networks with specific addressing.
+# Each placement ID must be unique within this environment.
+# For Ethernet devices: ip + modbus_port identify the Modbus TCP endpoint.
+# For serial devices: serial_address + gateway identify the endpoint (accessed via gateway IP).
+placements:
+  # Water treatment plant -- Purdue Level 1 (Basic Process Control)
+
+  - id: "wt-plc-01"
+    device: "compactlogix-l33er"
+    network: "wt-level1"
+    ip: "10.10.10.10"
+    modbus_port: 5020
+    role: "Water Treatment PLC 1 - Intake"
+    register_map_variant: "water-intake"
+
+  - id: "wt-plc-02"
+    device: "compactlogix-l33er"
+    network: "wt-level1"
+    ip: "10.10.10.11"
+    modbus_port: 5021
+    role: "Water Treatment PLC 2 - Treatment"
+    # No register_map_variant: exposes empty registers within device capacity.
+    # Variant will be defined when the treatment process register map is specified.
+
+  - id: "wt-plc-03"
+    device: "compactlogix-l33er"
+    network: "wt-level1"
+    ip: "10.10.10.12"
+    modbus_port: 5022
+    role: "Water Treatment PLC 3 - Distribution"
+    register_map_variant: "water-distribution"
+    additional_networks:
+      # Cross-plant link: this PLC also has an interface on the direct link to manufacturing.
+      - network: "cross-plant"
+        ip: "172.16.0.2"
+
+  # Manufacturing floor -- legacy flat network (no Purdue segmentation)
+
+  - id: "mfg-gateway-01"
+    device: "moxa-nport-5150"
+    network: "mfg-flat"
+    ip: "192.168.1.20"
+    modbus_port: 5030
+    role: "Serial-to-Ethernet Gateway"
+    bridges:
+      # This gateway bridges IP traffic from mfg-flat to serial devices on mfg-serial-bus.
+      - from_network: "mfg-flat"
+        to_network: "mfg-serial-bus"
+    additional_networks:
+      # Cross-plant link: gateway is also reachable from the water treatment side.
+      - network: "cross-plant"
+        ip: "172.16.0.3"
+
+  - id: "mfg-plc-01"
+    device: "slc-500-05"
+    network: "mfg-serial-bus"
+    serial_address: 1
+    gateway: "mfg-gateway-01"
+    role: "Line A Conveyor and Assembly"
+    register_map_variant: "mfg-line-a"
+
+  - id: "mfg-plc-02"
+    device: "modicon-984"
+    network: "mfg-serial-bus"
+    serial_address: 2
+    gateway: "mfg-gateway-01"
+    role: "Cooling Water System"
+    register_map_variant: "mfg-cooling"

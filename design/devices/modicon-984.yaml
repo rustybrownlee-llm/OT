@@ -1,8 +1,9 @@
 # modicon-984.yaml - Schneider Electric Modicon 984 PLC Device Atom
-# Stub definition for SOW-000.1. Full device profile deferred to SOW-001.0.
-# The Modicon 984 is a legacy serial PLC from the 1980s-1990s. It is the origin
-# of the Modbus protocol (Modbus was created by Modicon in 1979). Accessed via
-# RS-485 through a Moxa gateway on the manufacturing floor.
+# The Modicon 984 processor family is historically significant: Modicon (now Schneider
+# Electric) created the Modbus protocol in 1979. This specific unit was installed circa
+# 1988. It controls the manufacturing floor cooling water system.
+# [OT-REVIEW #4] The 984 supports ~999 holding registers and ~2000 coils with 16KB memory.
+# 256 registers is characteristic of the Modicon Micro 84, not the full 984 processor.
 schema_version: "0.1"
 
 device:
@@ -11,29 +12,100 @@ device:
   model: "Modicon 984"
   category: "plc"              # plc | gateway | hmi | sensor | relay | safety-controller
   vintage: 1988
-  description: "Legacy serial PLC, manufacturing floor cooling system. Modbus protocol origin device."
+  description: "Legacy serial PLC, manufacturing floor cooling system. Modbus protocol origin device (Modicon created Modbus in 1979)."
 
 connectivity:
   ports:
     - type: "rs485"
       protocols: ["modbus-rtu"]
   response_delay_ms: 80        # Very slow: 1980s processing overhead
-  response_jitter_ms: 30
+  response_jitter_ms: 50       # [OT-REVIEW] Models scan-time variability on legacy processors
   concurrent_connections: 1    # Serial: one active connection at a time
 
-# PROTOTYPE-DEBT: [td-devices-003] modicon-984 register capabilities are stubs.
-# Full register map research deferred to SOW-001.0.
+# [OT-REVIEW #4] Corrected register capacity for a 16KB Modicon 984 processor.
+# Classic Modbus 5-digit addressing convention: 0xxxx=coils, 1xxxx=discrete inputs,
+# 3xxxx=input registers, 4xxxx=holding registers.
 registers:
-  max_holding: 256
-  max_coils: 256
-  max_input_registers: 256
-  max_discrete_inputs: 256
-  addressing: "one-based"      # Modicon 984 uses one-based Modbus addressing
-  float_byte_order: "little-endian"
-  max_registers_per_read: 60
+  max_holding: 999            # 4xxxx range (40001-40999 in Modbus convention)
+  max_coils: 2000             # 0xxxx range (00001-02000)
+  max_input_registers: 999    # 3xxxx range (30001-30999)
+  max_discrete_inputs: 2000   # 1xxxx range (10001-12000)
+  addressing: "one-based"     # Modicon 984 uses one-based Modbus addressing
+  float_byte_order: "little-endian"  # CDAB word order -- classic Modicon byte swap
+  max_registers_per_read: 125 # [OT-REVIEW #11] Full Modbus spec -- this device defined the spec
 
 register_map_variants:
-  mfg-cooling: {}              # Placeholder: register map deferred to SOW-001.0
+  mfg-cooling:
+    # Cooling water system control and monitoring.
+    # Dual centrifugal pumps in lead/lag configuration (only one runs at a time normally).
+    # Addresses are one-based per Modbus convention originated by this device family.
+    holding:
+      - address: 1
+        name: "supply_temp"
+        description: "Coolant supply temperature (to process equipment)"
+        unit: "degF"
+        scale_min: 40
+        scale_max: 120
+        writable: false
+      - address: 2
+        name: "return_temp"
+        description: "Coolant return temperature (from process equipment)"
+        unit: "degF"
+        scale_min: 40
+        scale_max: 120
+        writable: false
+      - address: 3
+        name: "flow_rate"
+        description: "Cooling loop flow rate"
+        unit: "GPM"
+        scale_min: 0
+        scale_max: 500            # Dual 10HP centrifugal pumps, 250 GPM each at design point
+        writable: false
+      - address: 4
+        name: "pump_pressure"
+        description: "Cooling loop discharge pressure"
+        unit: "PSI"
+        scale_min: 0
+        scale_max: 80             # Normal operating: 30-45 PSI, 80 PSI is system design limit
+        writable: false
+      - address: 5
+        name: "tank_level"
+        description: "Coolant reservoir level"
+        unit: "%"
+        scale_min: 0
+        scale_max: 100
+        writable: false
+      - address: 6
+        name: "setpoint_temp"
+        description: "Cooling loop temperature setpoint (attack surface: what happens if attacker writes 40 when system expects 65?)"
+        unit: "degF"
+        scale_min: 40
+        scale_max: 80             # [OT-REVIEW #8] A controller needs at least one writable setpoint
+        writable: true
+      - address: 7
+        name: "pump_runtime_hours"
+        description: "Lead pump cumulative runtime (maintenance tracking, resets on power cycle)"
+        unit: "hours"
+        scale_min: 0
+        scale_max: 65535          # 16-bit hours counter (~7.5 years max)
+        writable: false
+    coils:
+      - address: 1
+        name: "pump_1_run"
+        description: "Primary cooling pump run command (lead pump -- normally only one pump runs at a time)"
+        writable: true
+      - address: 2
+        name: "pump_2_run"
+        description: "Backup cooling pump run command (lag pump -- simultaneous run risks pipe pressure spike and check valve hammering)"
+        writable: true
+      - address: 3
+        name: "low_coolant_alarm"
+        description: "Coolant reservoir below minimum level (read-only alarm)"
+        writable: false
+      - address: 4
+        name: "high_temp_alarm"
+        description: "Coolant return temperature exceeds safe threshold (read-only alarm)"
+        writable: false
 
 diagnostics:
   web_server: false

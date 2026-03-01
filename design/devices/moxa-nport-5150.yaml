@@ -1,6 +1,8 @@
 # moxa-nport-5150.yaml - Moxa NPort 5150 Serial-to-Ethernet Gateway Device Atom
-# Stub definition for SOW-000.1. Full device profile deferred to SOW-001.0.
 # The NPort 5150 bridges one RS-232/RS-485 serial port to Ethernet via Modbus TCP.
+# It is a transparent serial-to-TCP converter -- real NPort devices have no Modbus
+# registers of their own. The serial-gateway variant below is a simulated educational
+# abstraction that models gateway status as Modbus holding registers.
 schema_version: "0.1"
 
 device:
@@ -19,20 +21,94 @@ connectivity:
       protocols: ["modbus-rtu"]
   response_delay_ms: 15        # Serial RTT overhead: 10-20ms typical
   response_jitter_ms: 10
-  concurrent_connections: 4    # Limited by serial port serialization
+  # [OT-REVIEW #3] 4 TCP connections accepted, but serial port access is serialized --
+  # only one active connection can transact with the downstream serial device at a time.
+  concurrent_connections: 4
 
-# PROTOTYPE-DEBT: [td-devices-001] moxa-nport-5150 register capabilities are stubs.
-# Full register map research deferred to SOW-001.0.
+# NOTE: Real NPort 5150 devices have NO Modbus registers. They are transparent
+# serial-to-TCP converters. The register capacity below matches the simulated
+# serial-gateway variant, which models gateway status as an educational abstraction.
+# [OT-REVIEW #3] Baud rate is a coded enum (0-7) to stay within 16-bit register range.
 registers:
-  max_holding: 125
+  max_holding: 9              # Matches serial-gateway variant (simulated, not real hardware)
   max_coils: 0
-  max_input_registers: 125
+  max_input_registers: 0
   max_discrete_inputs: 0
   addressing: "zero-based"
   float_byte_order: "big-endian"
   max_registers_per_read: 125
 
-register_map_variants: {}
+register_map_variants:
+  serial-gateway:
+    # SIMULATED: Real NPort 5150 does not expose Modbus registers.
+    # This variant models gateway status as an educational abstraction,
+    # teaching engineers that infrastructure devices have observable state.
+    # All registers are read-only -- a gateway's status is observed, not commanded via Modbus.
+    holding:
+      - address: 0
+        name: "serial_port_status"
+        description: "Serial port operational state"
+        unit: "enum"            # 0=offline, 1=online, 2=error
+        scale_min: 0
+        scale_max: 2
+        writable: false
+      - address: 1
+        name: "serial_baud_rate"
+        description: "Serial port baud rate (coded enum, not raw bps)"
+        unit: "enum"            # 0=1200, 1=2400, 2=4800, 3=9600, 4=19200, 5=38400, 6=57600, 7=115200
+        scale_min: 0
+        scale_max: 7
+        writable: false         # [OT-REVIEW #3] Coded enum avoids exceeding 16-bit register range
+      - address: 2
+        name: "serial_data_format"
+        description: "Serial data format (coded enum)"
+        unit: "enum"            # 0=8N1, 1=8E1, 2=8O1, 3=7E1
+        scale_min: 0
+        scale_max: 3
+        writable: false
+      - address: 3
+        name: "serial_mode"
+        description: "Serial interface electrical mode"
+        unit: "enum"            # 0=RS-232, 1=RS-422, 2=RS-485-2wire, 3=RS-485-4wire
+        scale_min: 0
+        scale_max: 3
+        writable: false
+      - address: 4
+        name: "active_tcp_connections"
+        description: "Current TCP client connections (max 4, but serial access is serialized)"
+        unit: "count"
+        scale_min: 0
+        scale_max: 4
+        writable: false
+      - address: 5
+        name: "serial_tx_count"
+        description: "Messages forwarded from TCP to serial port"
+        unit: "msgs"
+        scale_min: 0
+        scale_max: 65535
+        writable: false
+      - address: 6
+        name: "serial_rx_count"
+        description: "Messages received from serial port"
+        unit: "msgs"
+        scale_min: 0
+        scale_max: 65535
+        writable: false
+      - address: 7
+        name: "serial_error_count"
+        description: "Serial parity, framing, and overrun errors"
+        unit: "count"
+        scale_min: 0
+        scale_max: 65535
+        writable: false
+      - address: 8
+        name: "uptime_hours"
+        description: "Device uptime since last power cycle"
+        unit: "hours"
+        scale_min: 0
+        scale_max: 65535
+        writable: false
+    coils: []  # Gateway has no coils (max_coils: 0)
 
 diagnostics:
   web_server: true

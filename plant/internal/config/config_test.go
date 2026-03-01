@@ -186,3 +186,151 @@ func TestValidate_InvalidPort_Fails(t *testing.T) {
 		t.Error("expected error for privileged modbus_port, got nil")
 	}
 }
+
+// TestLoadDevice_MoxaNPort5150 verifies the completed Moxa NPort 5150 device atom:
+// loads without error, has the correct ID and schema version, and contains the
+// serial-gateway variant with exactly 9 holding registers and 0 coils.
+func TestLoadDevice_MoxaNPort5150(t *testing.T) {
+	path := filepath.Join(designRoot(t), "devices", "moxa-nport-5150.yaml")
+
+	dev, err := config.LoadDevice(path)
+	if err != nil {
+		t.Fatalf("LoadDevice(%q) error: %v", path, err)
+	}
+
+	if dev.Device.ID != "moxa-nport-5150" {
+		t.Errorf("device.id = %q, want %q", dev.Device.ID, "moxa-nport-5150")
+	}
+
+	if dev.SchemaVersion != "0.1" {
+		t.Errorf("schema_version = %q, want %q", dev.SchemaVersion, "0.1")
+	}
+
+	variant, ok := dev.RegisterMapVariants["serial-gateway"]
+	if !ok {
+		t.Fatal("expected register_map_variants to include serial-gateway")
+	}
+
+	if got := len(variant.Holding); got != 9 {
+		t.Errorf("serial-gateway holding register count = %d, want 9", got)
+	}
+
+	if got := len(variant.Coils); got != 0 {
+		t.Errorf("serial-gateway coil count = %d, want 0", got)
+	}
+}
+
+// TestLoadDevice_SLC500 verifies the completed SLC-500-05 device atom:
+// loads without error, has the correct ID, contains mfg-line-a variant with
+// 7 holding registers, and has DH-485 in its connectivity ports.
+func TestLoadDevice_SLC500(t *testing.T) {
+	path := filepath.Join(designRoot(t), "devices", "slc-500-05.yaml")
+
+	dev, err := config.LoadDevice(path)
+	if err != nil {
+		t.Fatalf("LoadDevice(%q) error: %v", path, err)
+	}
+
+	if dev.Device.ID != "slc-500-05" {
+		t.Errorf("device.id = %q, want %q", dev.Device.ID, "slc-500-05")
+	}
+
+	variant, ok := dev.RegisterMapVariants["mfg-line-a"]
+	if !ok {
+		t.Fatal("expected register_map_variants to include mfg-line-a")
+	}
+
+	if got := len(variant.Holding); got != 7 {
+		t.Errorf("mfg-line-a holding register count = %d, want 7", got)
+	}
+
+	hasDH485 := false
+	for _, port := range dev.Connectivity.Ports {
+		if port.Type == "dh485" {
+			hasDH485 = true
+			break
+		}
+	}
+	if !hasDH485 {
+		t.Error("expected connectivity.ports to include a dh485 port")
+	}
+}
+
+// TestLoadDevice_Modicon984 verifies the completed Modicon 984 device atom:
+// loads without error, has the correct ID, contains mfg-cooling variant with
+// 7 holding registers, and has max_holding set to 999.
+func TestLoadDevice_Modicon984(t *testing.T) {
+	path := filepath.Join(designRoot(t), "devices", "modicon-984.yaml")
+
+	dev, err := config.LoadDevice(path)
+	if err != nil {
+		t.Fatalf("LoadDevice(%q) error: %v", path, err)
+	}
+
+	if dev.Device.ID != "modicon-984" {
+		t.Errorf("device.id = %q, want %q", dev.Device.ID, "modicon-984")
+	}
+
+	variant, ok := dev.RegisterMapVariants["mfg-cooling"]
+	if !ok {
+		t.Fatal("expected register_map_variants to include mfg-cooling")
+	}
+
+	if got := len(variant.Holding); got != 7 {
+		t.Errorf("mfg-cooling holding register count = %d, want 7", got)
+	}
+
+	if dev.Registers.MaxHolding != 999 {
+		t.Errorf("registers.max_holding = %d, want 999", dev.Registers.MaxHolding)
+	}
+}
+
+// TestLoadDevice_CompactLogix_WaterTreatment verifies that the CompactLogix device atom
+// now contains three register map variants: water-intake, water-distribution, and
+// the new water-treatment variant.
+func TestLoadDevice_CompactLogix_WaterTreatment(t *testing.T) {
+	path := filepath.Join(designRoot(t), "devices", "compactlogix-l33er.yaml")
+
+	dev, err := config.LoadDevice(path)
+	if err != nil {
+		t.Fatalf("LoadDevice(%q) error: %v", path, err)
+	}
+
+	wantVariants := []string{"water-intake", "water-distribution", "water-treatment"}
+	for _, name := range wantVariants {
+		if _, ok := dev.RegisterMapVariants[name]; !ok {
+			t.Errorf("expected register_map_variants to include %q", name)
+		}
+	}
+
+	if got := len(dev.RegisterMapVariants); got != 3 {
+		t.Errorf("register_map_variants count = %d, want 3", got)
+	}
+}
+
+// TestLoadDevice_CompactLogix_NoRS485 verifies that the CompactLogix device atom
+// has no RS-485 port in its connectivity (Ethernet-native device).
+func TestLoadDevice_CompactLogix_NoRS485(t *testing.T) {
+	path := filepath.Join(designRoot(t), "devices", "compactlogix-l33er.yaml")
+
+	dev, err := config.LoadDevice(path)
+	if err != nil {
+		t.Fatalf("LoadDevice(%q) error: %v", path, err)
+	}
+
+	for _, port := range dev.Connectivity.Ports {
+		if port.Type == "rs485" {
+			t.Errorf("found rs485 port in CompactLogix connectivity -- device is Ethernet-native and has no RS-485 port")
+		}
+	}
+}
+
+// TestValidate_UnknownRegisterMapVariant_Fails checks that a placement specifying
+// a register_map_variant not defined in the device fails validation.
+func TestValidate_UnknownRegisterMapVariant_Fails(t *testing.T) {
+	resolved := config.DefaultEnvironment()
+	resolved.Env.Placements[0].RegisterMapVariant = "nonexistent-variant"
+	if err := resolved.Validate(); err == nil {
+		t.Error("expected error for unknown register_map_variant, got nil")
+	}
+}

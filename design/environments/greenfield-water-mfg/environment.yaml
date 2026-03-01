@@ -41,8 +41,7 @@ placements:
     ip: "10.10.10.11"
     modbus_port: 5021
     role: "Water Treatment PLC 2 - Treatment"
-    # No register_map_variant: exposes empty registers within device capacity.
-    # Variant will be defined when the treatment process register map is specified.
+    register_map_variant: "water-treatment"
 
   - id: "wt-plc-03"
     device: "compactlogix-l33er"
@@ -64,6 +63,9 @@ placements:
     ip: "192.168.1.20"
     modbus_port: 5030
     role: "Serial-to-Ethernet Gateway"
+    # NOTE: serial-gateway variant is a simulated abstraction for educational purposes.
+    # Real NPort 5150 devices do not expose Modbus registers of their own.
+    register_map_variant: "serial-gateway"
     bridges:
       # This gateway bridges IP traffic from mfg-flat to serial devices on mfg-serial-bus.
       - from_network: "mfg-flat"

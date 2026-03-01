@@ -1,7 +1,10 @@
 # slc-500-05.yaml - Allen-Bradley SLC 500-05 PLC Device Atom
-# Stub definition for SOW-000.1. Full device profile deferred to SOW-001.0.
-# The SLC 500-05 is a legacy serial PLC from the early 1990s, accessed via RS-485
-# through a Moxa gateway. Represents the legacy manufacturing floor equipment.
+# The SLC 500-05 is a legacy modular PLC from the early 1990s, installed on the
+# manufacturing floor. It controls Line A conveyor and assembly operations.
+# [OT-REVIEW #2] The SLC-500/05 natively speaks DH-485 (Data Highway 485), NOT Modbus.
+# Modbus RTU is provided by a ProSoft MVI46-MCM communication module in the chassis.
+# IT engineers must understand: RS-485 is an electrical standard, not a protocol.
+# Sending Modbus to the SLC's native Channel 0 port will get no response.
 schema_version: "0.1"
 
 device:
@@ -10,29 +13,106 @@ device:
   model: "SLC 500-05"
   category: "plc"              # plc | gateway | hmi | sensor | relay | safety-controller
   vintage: 1992
-  description: "Legacy serial PLC, manufacturing floor Line A. Accessed via Moxa gateway over RS-485."
+  description: "Legacy modular PLC, manufacturing floor Line A. DH-485 native; Modbus RTU via ProSoft MVI46-MCM module."
 
 connectivity:
   ports:
+    # Native processor Channel 0 -- DH-485 protocol, NOT Modbus.
+    # RS-485 electrical standard does not imply Modbus protocol.
+    - type: "dh485"
+      protocols: ["dh-485"]
+    # ProSoft MVI46-MCM communication module in chassis slot.
+    # This module provides Modbus RTU capability and maps SLC data files (N7:, F8:)
+    # into Modbus register addresses. One-based addressing is the module's convention.
     - type: "rs485"
       protocols: ["modbus-rtu"]
   response_delay_ms: 50        # Slow: serial RTT + legacy processing overhead
   response_jitter_ms: 20
   concurrent_connections: 1    # Serial: one active connection at a time
 
-# PROTOTYPE-DEBT: [td-devices-002] slc-500-05 register capabilities are stubs.
-# Full register map research deferred to SOW-001.0.
 registers:
   max_holding: 256
   max_coils: 256
   max_input_registers: 256
   max_discrete_inputs: 256
-  addressing: "one-based"      # SLC 500 uses one-based Modbus addressing
-  float_byte_order: "little-endian"
-  max_registers_per_read: 60
+  # One-based addressing via ProSoft MVI46-MCM module Modbus mapping.
+  # The module maps SLC data files (N7:0, N7:1, ...) to Modbus addresses 1, 2, ...
+  addressing: "one-based"
+  float_byte_order: "big-endian"   # [OT-REVIEW #6] Allen-Bradley native byte order; ProSoft module preserves this by default
+  max_registers_per_read: 125      # [OT-REVIEW] Modbus spec maximum; ProSoft MVI46 supports full range
 
 register_map_variants:
-  mfg-line-a: {}               # Placeholder: register map deferred to SOW-001.0
+  mfg-line-a:
+    # Conveyor and assembly line control.
+    # Addresses are one-based per ProSoft MVI46-MCM Modbus module mapping.
+    # ProSoft maps SLC data files (N7:0, N7:1, ...) into Modbus holding registers.
+    holding:
+      - address: 1
+        name: "conveyor_speed"
+        description: "Conveyor belt speed setpoint"
+        unit: "ft/min"
+        scale_min: 0
+        scale_max: 200            # Typical assembly conveyor: 40-120 ft/min
+        writable: true
+      - address: 2
+        name: "motor_current"
+        description: "Conveyor drive motor current draw"
+        unit: "A"
+        scale_min: 0
+        scale_max: 30             # 5HP conveyor motor, FLA ~15A, 30A includes overload range
+        writable: false
+      - address: 3
+        name: "product_count"
+        description: "Completed units today (resets at shift change)"
+        unit: "units"
+        scale_min: 0
+        scale_max: 10000
+        writable: false
+      - address: 4
+        name: "reject_count"
+        description: "Rejected units today (quality check failures)"
+        unit: "units"
+        scale_min: 0
+        scale_max: 500
+        writable: false
+      - address: 5
+        name: "line_temperature"
+        description: "Assembly station ambient temperature"
+        unit: "degF"
+        scale_min: 0
+        scale_max: 200
+        writable: false
+      - address: 6
+        name: "cycle_time"
+        description: "Current assembly station cycle time"
+        unit: "s"
+        scale_min: 0
+        scale_max: 120            # Typical assembly cycle: 30-60s
+        writable: false
+      - address: 7
+        name: "status_word"
+        description: "Machine status bitmask: bit0=running, bit1=faulted, bit2=jammed, bit3=e-stop, bit4=VFD-fault, bit5=overtemp"
+        unit: "bitmask"
+        scale_min: 0
+        scale_max: 65535          # 16-bit bitmask, individual bits decoded by SCADA/HMI
+        writable: false
+    coils:
+      - address: 1
+        name: "conveyor_run"
+        description: "Conveyor run/stop command"
+        writable: true
+      - address: 2
+        name: "conveyor_direction"
+        description: "Conveyor direction (0=forward, 1=reverse)"
+        writable: true
+      - address: 3
+        name: "e_stop_active"
+        description: "Emergency stop circuit active (read-only -- hardwired safety circuit, PLC reads state but cannot override per NFPA 79)"
+        writable: false
+      - address: 4
+        name: "jam_detected"
+        description: "Product jam sensor triggered (read-only status)"
+        writable: false
 
 diagnostics:
   web_server: false

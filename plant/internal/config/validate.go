@@ -50,6 +50,10 @@ func validatePlacement(p Placement, r *ResolvedEnvironment, seen map[string]bool
 		return err
 	}
 
+	if err := validateRegisterMapVariant(p, r); err != nil {
+		return err
+	}
+
 	if p.ModbusPort != 0 {
 		if err := validatePort(fmt.Sprintf("placement %q modbus_port", p.ID), p.ModbusPort); err != nil {
 			return err
@@ -74,6 +78,24 @@ func validatePlacementNetworks(p Placement, r *ResolvedEnvironment) error {
 				p.ID, an.Network,
 			)
 		}
+	}
+
+	return nil
+}
+
+// validateRegisterMapVariant checks that a placement's register_map_variant, when non-empty,
+// names a variant that exists in the device's RegisterMapVariants map.
+func validateRegisterMapVariant(p Placement, r *ResolvedEnvironment) error {
+	if p.RegisterMapVariant == "" {
+		return nil
+	}
+
+	dev := r.Devices[p.Device]
+	if _, ok := dev.RegisterMapVariants[p.RegisterMapVariant]; !ok {
+		return fmt.Errorf(
+			"placement %q specifies register_map_variant %q not found in device %q",
+			p.ID, p.RegisterMapVariant, p.Device,
+		)
 	}
 
 	return nil

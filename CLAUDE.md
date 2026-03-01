@@ -100,13 +100,15 @@ Extends the shared Go stack with these project-specific technologies:
 
 All implementation work follows the SOW-first pattern:
 
-1. **Draft**: Create/revise SOW in `docs/sows/` using the `/sow` skill
-2. **Review**: User reviews and requests changes if needed
-3. **Approve**: User explicitly approves (e.g., "approved", "execute SOW-001.0", "looks good, proceed")
-4. **Implement**: Launch the `sow-implementation-executor` agent to execute the approved SOW -- ALL approved SOWs are implemented via this agent, no exceptions
-5. **Validate**: Agent validates against SOW success criteria before reporting completion
+1. **Draft**: Create/revise SOW in `docs/implementation/sows/` using the `/sow` skill
+2. **OT Domain Review**: If the SOW includes design layer YAML deliverables (device atoms, network atoms, environment templates), run the `ot-domain-reviewer` agent (`.claude/agents/ot-domain-reviewer.md`) against the register map designs and device metadata BEFORE presenting for user approval. Incorporate all corrections into the SOW and tag them with `[OT-REVIEW]` for traceability.
+3. **Review**: User reviews and requests changes if needed
+4. **Approve**: User explicitly approves (e.g., "approved", "execute SOW-001.0", "looks good, proceed")
+5. **Implement**: Launch the `sow-implementation-executor` agent to execute the approved SOW -- ALL approved SOWs are implemented via this agent, no exceptions
+6. **Validate**: Agent validates against SOW success criteria before reporting completion
 
 **Never implement without an approved SOW. Never implement an SOW without the agent.**
+**Never submit a SOW with design layer YAML without an OT domain review.**
 
 ## Lessons and Anti-Patterns
 

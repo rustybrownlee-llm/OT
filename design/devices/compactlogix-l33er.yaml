@@ -1,6 +1,8 @@
 # compactlogix-l33er.yaml - Allen-Bradley CompactLogix 5380 L33ER Device Atom
 # Describes what this device type is and what it can do, independent of deployment role.
 # Per ADR-009 D3: register capabilities define capacity; register_map_variants define role-specific layouts.
+# [OT-REVIEW #1] The CompactLogix 5380 L33ER is Ethernet-native. It has no RS-485 port.
+# Modbus TCP is supported via EtherNet/IP explicit messaging or Add-On Instructions.
 schema_version: "0.1"
 
 device:
@@ -13,17 +15,19 @@ device:
 
 connectivity:
   ports:
+    # EtherNet/IP native; Modbus TCP via Add-On Instruction or explicit messaging
     - type: "ethernet"
       protocols: ["modbus-tcp"]
-    - type: "rs485"
-      protocols: ["modbus-rtu"]
   response_delay_ms: 5         # Typical: 2-10ms for a modern PLC
   response_jitter_ms: 3        # Small timing variation
-  concurrent_connections: 10   # Ethernet-native supports multiple simultaneous clients
+  concurrent_connections: 32   # [OT-REVIEW #10] EtherNet/IP supports 32 concurrent connections
 
 # Register capabilities define what this device type supports in terms of address space.
 # These are hardware limits -- not role-specific register assignments.
 # Named register maps (e.g., "water-intake") are in register_map_variants below.
+# Water treatment registers use metric units (L/s, kPa, NTU, degC).
+# Manufacturing floor registers use imperial units (ft/min, PSI, GPM, degF).
+# This mixed-unit split reflects the facility's operational history (common in US facilities).
 registers:
   max_holding: 4096
   max_coils: 2048
@@ -40,99 +44,55 @@ registers:
 # If no variant is specified, the device exposes empty registers within its capacity.
 register_map_variants:
   water-intake:
-    # Intake PLC: controls raw water pumps and measures intake flow.
-    # Conventions: 16-bit scaled integers (0=scale_min, 32767=scale_max).
+    # Intake PLC: controls raw water pumps and monitors raw water quality.
+    # [OT-REVIEW #7] Chlorine dosing and filtration are at the treatment stage (water-treatment variant).
+    # Conventions: 16-bit scaled integers (0=scale_min, 32767=scale_max). Zero-based addressing.
     holding:
-      - address: 0
-        name: "intake_flow_rate"
-        description: "Raw water intake flow rate"
-        unit: "L/s"
-        scale_min: 0.0
-        scale_max: 100.0
-        writable: false
-      - address: 1
-        name: "intake_pump_speed"
-        description: "Intake pump speed setpoint (0-100%)"
-        unit: "%"
-        scale_min: 0.0
-        scale_max: 100.0
-        writable: true
-      - address: 2
-        name: "ph_level"
-        description: "Process water pH"
-        unit: "pH"
-        scale_min: 0.0
-        scale_max: 14.0
-        writable: false
-      - address: 3
-        name: "chlorine_residual"
-        description: "Chlorine residual concentration"
-        unit: "mg/L"
-        scale_min: 0.0
-        scale_max: 5.0
-        writable: false
-      - address: 4
-        name: "turbidity"
-        description: "Water turbidity"
-        unit: "NTU"
-        scale_min: 0.0
-        scale_max: 10.0
-        writable: false
+      - { address: 0, name: intake_flow_rate,     unit: "L/s",   scale_min: 0, scale_max: 100, writable: false, description: "Raw water intake flow rate" }
+      - { address: 1, name: intake_pump_speed,     unit: "%",     scale_min: 0, scale_max: 100, writable: true,  description: "Intake pump speed setpoint (0-100%)" }
+      - { address: 2, name: raw_water_ph,          unit: "pH",    scale_min: 0, scale_max: 14,  writable: false, description: "Raw water pH at intake" }
+      - { address: 3, name: raw_water_turbidity,   unit: "NTU",   scale_min: 0, scale_max: 100, writable: false, description: "Raw water turbidity (untreated, higher range than post-filter)" }
+      - { address: 4, name: intake_water_temp,     unit: "degC",  scale_min: 0, scale_max: 40,  writable: false, description: "Raw water temperature" }
     coils:
-      - address: 0
-        name: "intake_pump_01_run"
-        description: "Intake pump 1 run command (0=stop, 1=run)"
-        writable: true
-      - address: 1
-        name: "intake_pump_02_run"
-        description: "Intake pump 2 run command (0=stop, 1=run)"
-        writable: true
-      - address: 2
-        name: "dosing_pump_chlorine_run"
-        description: "Chlorine dosing pump run command"
-        writable: true
-      - address: 3
-        name: "filter_backwash_active"
-        description: "Filter backwash cycle in progress (read-only status)"
-        writable: false
+      - { address: 0, name: intake_pump_01_run,   writable: true,  description: "Intake pump 1 run command (0=stop, 1=run)" }
+      - { address: 1, name: intake_pump_02_run,   writable: true,  description: "Intake pump 2 run command (0=stop, 1=run)" }
+      - { address: 2, name: screen_wash_active,   writable: false, description: "Travelling screen wash cycle in progress (intake debris removal)" }
+      - { address: 3, name: low_well_level_alarm, writable: false, description: "Intake well level below minimum threshold" }
+
+  water-treatment:
+    # Treatment PLC: filtration, chemical dosing, and UV sterilization.
+    # This is the middle stage: intake -> treatment -> distribution.
+    # Filter differential pressure is the key indicator for filter fouling and backwash timing.
+    # Zero-based addressing.
+    holding:
+      - { address: 0, name: filter_inlet_pressure,       unit: "kPa",    scale_min: 0, scale_max: 500, writable: false, description: "Pressure upstream of filter media" }
+      - { address: 1, name: filter_outlet_pressure,      unit: "kPa",    scale_min: 0, scale_max: 500, writable: false, description: "Pressure downstream of filter media" }
+      - { address: 2, name: filter_differential_pressure, unit: "kPa",   scale_min: 0, scale_max: 50,  writable: false, description: "Differential pressure across filter (backwash trigger: >15-25 kPa, vessel damage risk: >50 kPa)" }
+      - { address: 3, name: uv_intensity,                unit: "mW/cm2", scale_min: 0, scale_max: 100, writable: false, description: "UV sterilizer lamp intensity (real-time measurement, not dose)" }
+      - { address: 4, name: chemical_feed_rate,          unit: "mL/min", scale_min: 0, scale_max: 500, writable: true,  description: "Sodium hypochlorite dosing rate (moved from intake -- dosing is a treatment function)" }
+      - { address: 5, name: chlorine_residual,           unit: "mg/L",   scale_min: 0, scale_max: 5,   writable: false, description: "Post-treatment chlorine residual concentration (moved from intake -- measured after dosing)" }
+      - { address: 6, name: turbidity_post_filter,       unit: "NTU",    scale_min: 0, scale_max: 5,   writable: false, description: "Post-filtration turbidity (regulatory compliance point, should be <1 NTU for treated water)" }
+    coils:
+      - { address: 0, name: filter_backwash_command, writable: true,  description: "Initiate filter backwash sequence (single coil triggers multi-minute automated cycle: close influent, open backwash supply, wash, settle, return to service)" }
+      - { address: 1, name: chemical_feed_pump_run,  writable: true,  description: "Sodium hypochlorite dosing pump run command (moved from intake -- dosing is a treatment function)" }
+      - { address: 2, name: uv_system_active,        writable: false, description: "UV sterilization system energized (read-only status)" }
+      - { address: 3, name: high_dp_alarm,           writable: false, description: "Filter differential pressure exceeds backwash threshold (read-only alarm)" }
 
   water-distribution:
-    # Distribution PLC: controls clear well pumps and distribution flow.
+    # Distribution PLC: controls clear well pumps and monitors finished water quality.
+    # [OT-REVIEW] Residual chlorine and water temperature are standard distribution
+    # measurements and regulatory compliance points for finished water leaving the plant.
+    # Zero-based addressing.
     holding:
-      - address: 0
-        name: "clear_well_level"
-        description: "Clear well water level"
-        unit: "%"
-        scale_min: 0.0
-        scale_max: 100.0
-        writable: false
-      - address: 1
-        name: "distribution_flow_rate"
-        description: "Outbound distribution flow rate"
-        unit: "L/s"
-        scale_min: 0.0
-        scale_max: 150.0
-        writable: false
-      - address: 2
-        name: "distribution_pressure"
-        description: "Distribution header pressure"
-        unit: "kPa"
-        scale_min: 0.0
-        scale_max: 700.0
-        writable: false
+      - { address: 0, name: clear_well_level,        unit: "%",    scale_min: 0, scale_max: 100, writable: false, description: "Clear well water level" }
+      - { address: 1, name: distribution_flow_rate,  unit: "L/s",  scale_min: 0, scale_max: 150, writable: false, description: "Outbound distribution flow rate" }
+      - { address: 2, name: distribution_pressure,   unit: "kPa",  scale_min: 0, scale_max: 700, writable: false, description: "Distribution header pressure" }
+      - { address: 3, name: residual_chlorine,        unit: "mg/L", scale_min: 0, scale_max: 5,   writable: false, description: "Finished water chlorine residual (regulatory compliance point)" }
+      - { address: 4, name: distribution_water_temp, unit: "degC", scale_min: 0, scale_max: 40,  writable: false, description: "Finished water temperature leaving plant" }
     coils:
-      - address: 0
-        name: "distribution_pump_01_run"
-        description: "Distribution pump 1 run command (0=stop, 1=run)"
-        writable: true
-      - address: 1
-        name: "distribution_pump_02_run"
-        description: "Distribution pump 2 run command (0=stop, 1=run)"
-        writable: true
-      - address: 2
-        name: "booster_pump_run"
-        description: "Booster pump run command for cross-plant supply"
-        writable: true
+      - { address: 0, name: distribution_pump_01_run, writable: true, description: "Distribution pump 1 run command (0=stop, 1=run)" }
+      - { address: 1, name: distribution_pump_02_run, writable: true, description: "Distribution pump 2 run command (0=stop, 1=run)" }
+      - { address: 2, name: booster_pump_run,          writable: true, description: "Booster pump run command for cross-plant supply" }
 
 diagnostics:
   web_server: true

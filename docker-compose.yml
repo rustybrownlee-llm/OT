@@ -1,0 +1,139 @@
+# docker-compose.yml - OT Simulator Environment
+# Network topology mirrors the dual-network facility architecture per ADR-003.
+# Water treatment plant: Purdue model (Levels 1-3, VLAN-segmented)
+# Manufacturing floor: legacy flat network (192.168.1.0/24, no segmentation)
+# Cross-plant: direct Ethernet link (no firewall, models real-world default)
+
+name: ot-simulator
+
+networks:
+  # Water treatment plant - Level 3: Site Operations (SCADA, engineering workstation)
+  wt-level3:
+    name: ot-wt-level3
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.30.0/24
+          gateway: 10.10.30.1
+    labels:
+      ot.environment: "water-treatment"
+      ot.purdue-level: "3"
+      ot.description: "Site Operations - SCADA server and engineering workstation"
+
+  # Water treatment plant - Level 2: Area Supervisory Control (HMI operator stations)
+  wt-level2:
+    name: ot-wt-level2
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.20.0/24
+          gateway: 10.10.20.1
+    labels:
+      ot.environment: "water-treatment"
+      ot.purdue-level: "2"
+      ot.description: "Area Supervisory Control - HMI operator stations"
+
+  # Water treatment plant - Level 1: Basic Process Control (PLCs and I/O modules)
+  wt-level1:
+    name: ot-wt-level1
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.10.0/24
+          gateway: 10.10.10.1
+    labels:
+      ot.environment: "water-treatment"
+      ot.purdue-level: "1"
+      ot.description: "Basic Process Control - PLCs and I/O modules"
+
+  # Manufacturing floor - legacy flat network (no VLANs, no segmentation)
+  mfg-flat:
+    name: ot-mfg-flat
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.1.0/24
+          gateway: 192.168.1.1
+    labels:
+      ot.environment: "manufacturing"
+      ot.purdue-level: "legacy-flat"
+      ot.description: "Legacy flat network - no VLANs, unmanaged switch, circa 1993"
+
+  # Cross-plant connection - direct cable between water treatment and manufacturing
+  # Models the dangerous default: no firewall, no segmentation at the boundary
+  cross-plant:
+    name: ot-cross-plant
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.0.0/30
+          gateway: 172.16.0.1
+    labels:
+      ot.environment: "cross-plant"
+      ot.description: "Direct link between water treatment Level 1 and manufacturing (no firewall)"
+
+services:
+  # Plant simulator: hosts all virtual PLCs and process simulation
+  plant:
+    build:
+      context: ./plant
+      dockerfile: Dockerfile
+    container_name: ot-plant
+    restart: unless-stopped
+    networks:
+      wt-level3:
+        ipv4_address: 10.10.30.10
+      wt-level2:
+        ipv4_address: 10.10.20.10
+      wt-level1:
+        ipv4_address: 10.10.10.10
+      mfg-flat:
+        ipv4_address: 192.168.1.100
+      cross-plant:
+        ipv4_address: 172.16.0.2
+    ports:
+      # Modbus TCP - water treatment PLCs (Purdue Level 1)
+      - "5020:5020"
+      - "5021:5021"
+      - "5022:5022"
+      # Modbus TCP - manufacturing floor devices
+      - "5030:5030"
+      # HMI - water treatment (Purdue Level 2 operator station)
+      - "8080:8080"
+      # HMI - manufacturing floor (Windows XP Wonderware-style)
+      - "8081:8081"
+    volumes:
+      - ./plant/config:/config:ro
+    environment:
+      - OTS_LOG_LEVEL=info
+    labels:
+      ot.component: "plant-simulator"
+      ot.description: "Simulated plant process: water treatment PLCs and manufacturing floor devices"
+
+  # Security monitoring: observes plant traffic externally over the network
+  # IMPORTANT: This container has no direct code access to the plant module.
+  # It interacts only over the network, exactly as real monitoring tools do.
+  monitor:
+    build:
+      context: ./monitoring
+      dockerfile: Dockerfile
+    container_name: ot-monitor
+    restart: unless-stopped
+    networks:
+      # Monitor attached to Level 3 only -- it polls Modbus TCP from SCADA network
+      # Packet capture scenarios use network_mode: host or a dedicated capture interface
+      wt-level3:
+        ipv4_address: 10.10.30.20
+    ports:
+      # Security analyst dashboard
+      - "8090:8090"
+      # Alert API
+      - "8091:8091"
+    depends_on:
+      - plant
+    environment:
+      - OTS_LOG_LEVEL=info
+      - OTS_PLANT_ADDR=10.10.30.10
+    labels:
+      ot.component: "security-monitor"
+      ot.description: "External security monitoring - Modbus polling and anomaly detection"

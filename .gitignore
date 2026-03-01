@@ -1,0 +1,44 @@
+# Binaries
+plant/bin/
+monitoring/bin/
+poc/bin/
+
+# Runtime output
+plant/output/
+monitoring/output/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# Logs
+*.log
+logs/
+
+# Coverage
+coverage.out
+coverage.html
+
+# Docker
+.env
+
+# Temporary files
+tmp/
+temp/

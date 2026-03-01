@@ -1,0 +1,98 @@
+# plant.yaml - Default OT Simulator Plant Topology Configuration
+# This file defines the complete simulated facility topology.
+# All values are overridable via environment variables prefixed with OTS_.
+
+plant:
+  name: "Greenfield Water and Manufacturing Facility"
+  description: "Dual-network facility with modern water treatment (Purdue model) and legacy manufacturing floor (flat network, circa 1993)"
+
+# Logging configuration
+logging:
+  level: "info"       # debug | info | warn | error
+  format: "json"      # json only (structured logging requirement)
+
+# Water treatment plant - Purdue model segmentation
+water_treatment:
+  enabled: true
+  networks:
+    level3:
+      name: "wt-level3"
+      subnet: "10.10.30.0/24"
+      vlan: 30
+      description: "Site Operations - SCADA server and engineering workstation"
+    level2:
+      name: "wt-level2"
+      subnet: "10.10.20.0/24"
+      vlan: 20
+      description: "Area Supervisory Control - HMI operator stations"
+    level1:
+      name: "wt-level1"
+      subnet: "10.10.10.0/24"
+      vlan: 10
+      description: "Basic Process Control - PLCs and I/O modules"
+  hmi:
+    addr: "0.0.0.0"
+    port: 8080
+  devices:
+    - id: "wt-plc-01"
+      name: "Water Treatment PLC 1 - Intake"
+      profile: "compactlogix-l33er"
+      network: "level1"
+      ip: "10.10.10.10"
+      modbus_port: 5020
+      description: "Controls intake pumps, raw water flow measurement"
+    - id: "wt-plc-02"
+      name: "Water Treatment PLC 2 - Treatment"
+      profile: "compactlogix-l33er"
+      network: "level1"
+      ip: "10.10.10.11"
+      modbus_port: 5021
+      description: "Controls chemical dosing, filtration, pH and chlorine"
+    - id: "wt-plc-03"
+      name: "Water Treatment PLC 3 - Distribution"
+      profile: "compactlogix-l33er"
+      network: "level1"
+      ip: "10.10.10.12"
+      modbus_port: 5022
+      description: "Controls clear well pumps and distribution to manufacturing"
+
+# Manufacturing floor - legacy flat network
+manufacturing:
+  enabled: true
+  network:
+    name: "mfg-flat"
+    subnet: "192.168.1.0/24"
+    description: "Legacy flat network - no VLANs, no segmentation, unmanaged switch"
+  hmi:
+    addr: "0.0.0.0"
+    port: 8081
+  devices:
+    - id: "mfg-gateway-01"
+      name: "Moxa NPort 5150 - Serial Gateway"
+      profile: "moxa-nport-5150"
+      ip: "192.168.1.20"
+      modbus_port: 5030
+      description: "Serial-to-Ethernet gateway bridging RS-485 PLCs to network"
+    - id: "mfg-plc-01"
+      name: "SLC-500 PLC - Line A"
+      profile: "slc-500-05"
+      ip: "192.168.1.10"
+      serial_address: 1
+      gateway: "mfg-gateway-01"
+      description: "Controls Line A conveyor and assembly (serial, behind gateway)"
+    - id: "mfg-plc-02"
+      name: "Modicon 984 PLC - Cooling"
+      profile: "modicon-984"
+      ip: "192.168.1.11"
+      serial_address: 2
+      gateway: "mfg-gateway-01"
+      description: "Controls cooling water system consuming water treatment output (serial)"
+
+# Cross-plant connection between water treatment and manufacturing
+cross_plant:
+  enabled: true
+  network:
+    name: "cross-plant"
+    description: "Direct Ethernet link between water treatment and manufacturing (no firewall - models real-world default)"
+  water_treatment_endpoint: "wt-plc-03"
+  manufacturing_endpoint: "mfg-gateway-01"

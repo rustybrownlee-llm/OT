@@ -1,0 +1,110 @@
+# compactlogix-l33er.yaml - Allen-Bradley CompactLogix L33ER Device Profile
+# Represents a modern Ethernet-native PLC deployed in the water treatment plant.
+# Per ADR-004: generic Modbus TCP behavior is the base; this profile applies
+# vendor-specific overlays for timing, register limits, and diagnostics.
+
+device_profile:
+  id: "compactlogix-l33er"
+  vendor: "Allen-Bradley"
+  model: "CompactLogix 5380 L33ER"
+  vintage: 2024
+  description: "Modern Ethernet-native PLC. Water treatment Level 1. Represents best-practice OT deployment."
+
+communication:
+  primary: "ethernet"
+  protocol: "modbus-tcp"
+  modbus_unit_id: 1
+  response_delay_ms: 5        # Fast: 2-10ms typical for modern PLC
+  response_jitter_ms: 3       # Small timing variation
+  concurrent_connections: 10  # Ethernet-native supports multiple clients
+  tcp_port: null              # Assigned by plant topology (5020-5022)
+
+registers:
+  max_holding: 4096
+  max_coils: 2048
+  max_input_registers: 4096
+  max_discrete_inputs: 2048
+  addressing: "zero-based"
+  float_byte_order: "big-endian"  # Network byte order (Modbus standard)
+  max_registers_per_read: 125     # Modbus spec maximum
+
+# Register map for water treatment process values.
+# Conventions: 16-bit scaled integers (0-32767 mapped to engineering range).
+# Float pairs: two consecutive holding registers in IEEE 754.
+register_map:
+  holding:
+    - address: 0
+      name: "intake_flow_rate"
+      description: "Raw water intake flow rate (scaled: 0=0 L/s, 32767=100 L/s)"
+      unit: "L/s"
+      scale_min: 0.0
+      scale_max: 100.0
+      writable: false
+    - address: 1
+      name: "intake_pump_speed"
+      description: "Intake pump speed setpoint (0-100%)"
+      unit: "%"
+      scale_min: 0.0
+      scale_max: 100.0
+      writable: true
+    - address: 2
+      name: "ph_level"
+      description: "Process water pH (scaled: 0=0.0, 32767=14.0)"
+      unit: "pH"
+      scale_min: 0.0
+      scale_max: 14.0
+      writable: false
+    - address: 3
+      name: "chlorine_residual"
+      description: "Chlorine residual (scaled: 0=0.0 mg/L, 32767=5.0 mg/L)"
+      unit: "mg/L"
+      scale_min: 0.0
+      scale_max: 5.0
+      writable: false
+    - address: 4
+      name: "turbidity"
+      description: "Water turbidity (scaled: 0=0.0 NTU, 32767=10.0 NTU)"
+      unit: "NTU"
+      scale_min: 0.0
+      scale_max: 10.0
+      writable: false
+    - address: 5
+      name: "clear_well_level"
+      description: "Clear well water level (scaled: 0=0%, 32767=100%)"
+      unit: "%"
+      scale_min: 0.0
+      scale_max: 100.0
+      writable: false
+  coils:
+    - address: 0
+      name: "intake_pump_01_run"
+      description: "Intake pump 1 run command (0=stop, 1=run)"
+      writable: true
+    - address: 1
+      name: "intake_pump_02_run"
+      description: "Intake pump 2 run command (0=stop, 1=run)"
+      writable: true
+    - address: 2
+      name: "dosing_pump_chlorine_run"
+      description: "Chlorine dosing pump run command"
+      writable: true
+    - address: 3
+      name: "filter_backwash_active"
+      description: "Filter backwash cycle in progress (read-only status)"
+      writable: false
+
+diagnostics:
+  web_server: true
+  web_port: 80
+  snmp: false
+  syslog: false
+  fault_log: true
+  fault_log_depth: 100
+  network_discoverable: true   # Responds to ICMP and HTTP on port 80
+  firmware_updatable: true
+
+constraints:
+  firmware_updatable: true
+  requires_gateway: false      # Ethernet-native: no serial-to-Ethernet bridge needed
+  programming_software: "Studio 5000 (Windows 10+)"
+  max_program_size_kb: 750

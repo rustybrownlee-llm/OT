@@ -20,6 +20,10 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 # Copy the monitor binary
 COPY --from=builder /monitor /monitor
 
+# Copy config directory as fallback. The docker-compose volume mount (./monitoring/config:/config:ro)
+# takes precedence at runtime. This COPY ensures the image is self-contained when run standalone.
+COPY config/ /config/
+
 EXPOSE 8090 8091
 
 ENTRYPOINT ["/monitor"]

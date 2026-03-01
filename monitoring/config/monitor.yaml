@@ -1,0 +1,22 @@
+# monitor.yaml - Monitoring module configuration
+# Plant connection settings for the monitoring module to observe the OT environment.
+log_level: "info"
+
+plant:
+  # [OT-REVIEW] In this simulator, the plant binary hosts all virtual PLCs and is reachable
+  # at multiple IPs. The monitor polls via the wt-level3 interface (10.10.30.10) because both
+  # containers share that Docker network.
+  # In a real facility, a SCADA monitor would poll Level 1 PLC addresses directly
+  # (10.10.10.10-12) or via a DMZ historian/proxy -- NOT via the Level 3 firewall address.
+  address: "10.10.30.10"    # simulator abstraction: plant binary is multi-homed
+  modbus_endpoints:
+    - port: 5020
+      unit_id: 1             # wt-plc-01 (water intake) -- real facility Level 1 addr: 10.10.10.10
+    - port: 5021
+      unit_id: 1             # wt-plc-02 (water treatment) -- real facility Level 1 addr: 10.10.10.11
+    - port: 5022
+      unit_id: 1             # wt-plc-03 (water distribution) -- real facility Level 1 addr: 10.10.10.12
+    - port: 5030
+      # [OT-REVIEW] NPort 5150 does NOT serve registers -- it relays Modbus RTU to serial devices.
+      # Port 5030 reaches serial devices via unit ID routing, not the gateway itself.
+      unit_ids: [1, 2]       # mfg-serial-bus: unit 1 = SLC-500, unit 2 = Modicon 984

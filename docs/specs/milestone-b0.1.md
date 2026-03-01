@@ -33,16 +33,15 @@ An IT engineer can:
 | SOW-000.0 | Project Initialization | Complete | 2026-03-01 |
 | SOW-000.1 | Design Layer Pivot | Complete | 2026-03-01 |
 | SOW-001.0 | Full Device Atom Profiles | Complete | 2026-03-01 |
+| POC-001 | Modbus Library Validation | Complete | 2026-03-01 |
+| SOW-002.0 | Modbus TCP Server | Complete | 2026-03-01 |
+| SOW-003.0 | Process Simulation Engine | Complete | 2026-03-01 |
+| SOW-005.0 | Docker Compose Integration | Complete | 2026-03-01 |
+| SOW-004.0 | Scenario 01 Discovery Playbook | Complete | 2026-03-01 |
 
 ### Remaining (ordered by dependency)
 
-| # | SOW | Title | Dependencies | Status | Notes |
-|---|-----|-------|-------------|--------|-------|
-| 1 | POC-001 | Modbus Library Validation | None | Not started | Validate simonvetter/modbus in poc/: TCP server, register serving, unit ID routing, configurable response delays. Quick throwaway -- proves the library works before committing to it. |
-| 2 | SOW-002.0 | Modbus TCP Server | POC-001 | Not started | Plant binary starts Modbus TCP listeners for each Ethernet placement. Serves registers from design layer variants. Gateway routes by unit ID to serial device register maps. Per-device response delays. Static register values (no simulation yet). |
-| 3 | SOW-003.0 | Process Simulation Engine | SOW-002.0 | Not started | Registers change over time. Sensor drift within scale ranges. Coil writes affect related holding registers (pump on -> flow increases, valve open -> pressure changes). Simple behaviors, not physics. Enough to make the environment feel alive. |
-| 4 | SOW-004.0 | Scenario 01 Discovery Playbook | SOW-003.0 | Not started | Write step-by-step instructions for Scenario 01. Engineer discovers the network, identifies devices, reads registers, writes a coil, observes the effect. Expected outputs documented. Validation checklist. |
-| 5 | SOW-005.0 | Docker Compose Integration | SOW-002.0 | Not started | Ensure `docker compose up` brings up a fully functional environment. Port mapping, health checks, log output, clean shutdown. May fold into SOW-002.0 if current setup is close enough. |
+None. All Beta 0.1 SOWs are complete.
 
 ### Dependency Graph
 
@@ -70,14 +69,22 @@ Active debt items that should be resolved before or during beta 0.1:
 |----|----------|-------------|-----------|------------|
 | TD-002 | `plant/internal/config/config.go` | `findDesignRoot` uses relative path walking -- fragile | SOW-000.1 | Revisit when design tooling built |
 | TD-004 | `plant/cmd/plant/main.go` | Default `--environment` path is relative, assumes binary runs from `plant/` | SOW-000.1 | Revisit when design tooling built |
-| TD-005 | `design/devices/*.yaml` | All register maps use holding registers + coils only; input registers (FC04) and discrete inputs (FC02) not used | SOW-001.0 | When Modbus server is implemented |
-| TD-006 | `design/devices/*.yaml` | No 32-bit float register pairs; cannot demonstrate Modicon word-swap issue | SOW-001.0 | Future SOW |
+| TD-005 | `design/devices/*.yaml` | All register maps use holding registers + coils only; input registers (FC04) and discrete inputs (FC02) not used | SOW-001.0 | Post-Beta 0.1 |
+| TD-006 | `design/devices/*.yaml` | No 32-bit float register pairs; cannot demonstrate Modicon word-swap issue | SOW-001.0 | Post-Beta 0.1 |
+| TD-013 | `plant/internal/process/water.go` | Cross-variant coupling not implemented (e.g., intake output does not feed treatment input) | SOW-003.0 | Future SOW |
+| TD-014 | `plant/internal/process/engine.go` | Tick rate hardcoded to 1 second | SOW-003.0 | When configurable tick rate needed |
+| TD-015 | `plant/internal/process/manufacturing.go` | Jam/e-stop probabilities hardcoded (0.1%, 0.05%) | SOW-003.0 | When probabilities need tuning |
+| TD-016 | `scenarios/01-discovery/` | Scenario references specific tool versions (nmap, mbpoll). Tool syntax may change. | SOW-004.0 | Review when tools update |
+| TD-017 | `scenarios/01-discovery/solutions/` | Solution shows register values dependent on init values and simulation timing | SOW-004.0 | Update when process models are tuned |
+| TD-011 | `monitoring/config/monitor.yaml` | Config file is a stub -- monitor binary does not actually consume it yet | SOW-005.0 | When monitoring module is implemented |
+| TD-012 | `docker-compose.yml` | Monitor health check only verifies config is readable, not that monitoring is functional | SOW-005.0 | When monitoring module has real endpoints |
+| TD-018 | `docker-compose.yml` | cross-plant network assigns only 172.16.0.2; 172.16.0.3 (mfg-gateway-01) is unroutable | SOW-005.0 | When multi-container architecture is considered |
+| TD-019 | `docker-compose.yml` | mfg-serial-bus (RS-485) absent from Docker Compose; RS-485 cannot be modeled as bridge network | SOW-005.0 | Documentation only |
 
 ## Open Questions
 
-- Should SOW-005.0 (Docker Compose) be a separate SOW or fold into SOW-002.0?
-- Does Scenario 01 need a validation script (automated check) or just a written playbook?
-- Should TD-005 (input registers) be addressed in SOW-002.0 when the Modbus server is built, or deferred further?
+- TD-005 (input registers) deferred past Beta 0.1 -- all current scenarios use holding registers + coils only
+- Scenario 01 uses manual validation (per ADR-007 D4: content, not code). Automated scoring deferred.
 
 ## Architecture Reference
 

@@ -89,6 +89,10 @@ services:
         ipv4_address: 10.10.10.10
       mfg-flat:
         ipv4_address: 192.168.1.100
+      # TD-018: cross-plant network assigns only 172.16.0.2 to the plant container.
+      # Environment.yaml also defines 172.16.0.3 (mfg-gateway-01), which the plant simulates,
+      # but Docker Compose cannot assign two IPs to one container on the same network.
+      # Port scans of 172.16.0.3 will receive no response. This is a simulator constraint.
       cross-plant:
         ipv4_address: 172.16.0.2
     ports:
@@ -97,11 +101,18 @@ services:
       - "5021:5021"
       - "5022:5022"
       # Modbus TCP - manufacturing floor devices
+      # TD-019: mfg-serial-bus (RS-485) is declared in environment.yaml but has no Docker network.
+      # RS-485 is a physical serial bus; it cannot be modeled as a Docker bridge network.
+      # Port 5030 carries Modbus TCP from the NPort 5150 serial gateway to host-accessible clients.
       - "5030:5030"
-      # HMI - water treatment (Purdue Level 2 operator station)
-      - "8080:8080"
-      # HMI - manufacturing floor (Windows XP Wonderware-style)
-      - "8081:8081"
+      # HMI ports (8080 water treatment, 8081 manufacturing) are intentionally omitted.
+      # No HMI exists in Beta 0.1. They are declared in plant/Dockerfile EXPOSE for future use.
+    healthcheck:
+      test: ["CMD", "/plant", "--health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     volumes:
       - ./design:/design:ro
     environment:
@@ -130,10 +141,23 @@ services:
       # Alert API
       - "8091:8091"
     depends_on:
-      - plant
+      plant:
+        condition: service_healthy
+    volumes:
+      # Mount monitoring config read-only. The image also contains a copy as fallback
+      # (see monitoring/Dockerfile), but the volume mount takes precedence at runtime.
+      - ./monitoring/config:/config:ro
     environment:
       - OTS_LOG_LEVEL=info
       - OTS_PLANT_ADDR=10.10.30.10
+    healthcheck:
+      # TD-012: This health check only verifies config is readable, not that monitoring
+      # is functional. Upgrade when the monitoring module has real endpoints.
+      test: ["CMD", "/monitor", "--health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
     labels:
       ot.component: "security-monitor"
       ot.description: "External security monitoring - Modbus polling and anomaly detection"

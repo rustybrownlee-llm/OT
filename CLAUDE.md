@@ -69,17 +69,17 @@ Extends the shared Go stack with these project-specific technologies:
 
 All implementation work follows the SOW-first pattern:
 
-1. **Draft**: Create/revise SOW in `docs/implementation/sows/` using the `/sow` skill
-2. **OT Domain Review**: If the SOW includes design layer YAML deliverables, run the `ot-domain-reviewer` agent before presenting for user approval. Tag corrections with `[OT-REVIEW]`.
-3. **Review**: User reviews and requests changes
+1. **Draft**: Create/revise SOW in `docs/implementation/sows/` using the `/sow` skill (dedicated session)
+2. **OT Domain Review**: Run the `ot-domain-reviewer` agent against ALL SOWs before presenting for user approval. Tag corrections with `[OT-REVIEW]`.
+3. **User Review**: User reviews and requests changes
 4. **Approve**: User explicitly approves (e.g., "approved", "execute SOW-001.0")
-5. **Implement**: Launch the `sow-implementation-executor` agent -- ALL approved SOWs are implemented via this agent, no exceptions
+5. **Implement**: Launch the `sow-implementation-executor` agent in a separate session -- ALL approved SOWs are implemented via this agent, no exceptions
 6. **Validate**: Agent validates against SOW success criteria
 7. **Update milestone**: Update the active milestone spec in `docs/specs/` with completion status
 
 **Never implement without an approved SOW. Never implement an SOW without the agent.**
-**Never submit a SOW with design layer YAML without an OT domain review.**
-**SOW drafting and SOW implementation are separate sessions.** Do not draft and implement in the same context window -- context compaction increases hallucination risk.
+**Every SOW gets an OT domain review before user approval -- no exceptions.**
+**SOW drafting and SOW implementation are separate sessions.** Context compaction increases hallucination risk.
 
 ## Key Principles
 

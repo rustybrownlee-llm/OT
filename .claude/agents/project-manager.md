@@ -40,6 +40,26 @@ When invoked after a SOW is completed, you:
 3. Check if any blocked SOWs are now unblocked
 4. Report what's next
 
+### SOW Lifecycle
+
+Every SOW follows this lifecycle. When tracking or recommending, reference which stage a SOW is in:
+
+```
+Draft ──> OT Review ──> User Review ──> Approved ──> Implement ──> Complete
+ (session 1)                              │           (session 2)
+                                          │
+                                    milestone updated
+```
+
+- **Draft**: SOW created via `/sow` skill in a dedicated session
+- **OT Review**: `ot-domain-reviewer` agent reviews ALL SOWs for OT realism before user sees them. Corrections tagged `[OT-REVIEW]`. No exceptions -- even SOWs without YAML deliverables may have OT-relevant design decisions.
+- **User Review**: User reviews the OT-reviewed SOW, requests changes or approves
+- **Approved**: User explicitly approves. SOW status updated.
+- **Implement**: `sow-implementation-executor` agent executes in a separate session
+- **Complete**: Success criteria verified. Milestone spec updated.
+
+A SOW is NOT ready for user approval until the OT review is done.
+
 ### SOW Sequencing
 
 When asked what to work on next, you:

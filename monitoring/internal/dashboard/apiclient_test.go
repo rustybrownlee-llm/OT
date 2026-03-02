@@ -168,12 +168,13 @@ func TestAPIClient_Unavailable(t *testing.T) {
 }
 
 func TestGetBaselines_ParsesArray(t *testing.T) {
-	want := []dashboard.BaselineStatus{
-		{DeviceID: "dev-1", Status: "established"},
-		{DeviceID: "dev-2", Status: "learning"},
+	// API returns a map keyed by device ID; client flattens to slice.
+	apiResp := map[string]dashboard.BaselineStatus{
+		"dev-1": {DeviceID: "dev-1", Status: "established"},
+		"dev-2": {DeviceID: "dev-2", Status: "learning"},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeTestJSON(w, want)
+		writeTestJSON(w, apiResp)
 	}))
 	defer srv.Close()
 

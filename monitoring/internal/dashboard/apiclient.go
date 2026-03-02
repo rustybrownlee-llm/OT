@@ -168,11 +168,16 @@ func (c *APIClient) AcknowledgeAlert(id string) error {
 }
 
 // GetBaselines fetches baseline status for all devices.
+// The API returns a map keyed by device ID; this method flattens it to a slice.
 // Returns nil, nil when the baseline API is not yet available.
 func (c *APIClient) GetBaselines() ([]BaselineStatus, error) {
-	var baselines []BaselineStatus
-	if err := c.getJSON("/api/baselines", &baselines); err != nil {
+	var raw map[string]BaselineStatus
+	if err := c.getJSON("/api/baselines", &raw); err != nil {
 		return nil, err
+	}
+	baselines := make([]BaselineStatus, 0, len(raw))
+	for _, b := range raw {
+		baselines = append(baselines, b)
 	}
 	return baselines, nil
 }

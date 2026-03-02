@@ -1,0 +1,25 @@
+# ps-station-lan.yaml - Pipeline Station Flat Ethernet Network Atom
+# Flat Ethernet for a remote, unmanned compressor station.
+# No VLANs, no managed switch, no segmentation -- all IP devices share a single subnet.
+# Why flat? Remote compressor stations typically have 3-8 IP devices. The cost and
+# complexity of managed switches and VLANs is not justified at this scale.
+# This is a critical teaching point: flat networks give attackers lateral movement
+# with no barriers. Contrast with the greenfield water treatment Purdue architecture.
+# Why no SPAN? Unmanaged switches have no port mirroring capability. Passive network
+# monitoring tools (Dragos, Zeek) cannot observe traffic at the station unless a
+# network TAP is physically installed. Remote sites often have monitoring blind spots.
+# Subnet 10.20.1.0/24 uses the 10.x.x.x private range; the "20" in the second octet
+# distinguishes this site from the water treatment network (10.10.x.x). The /24 is
+# oversized for 4 devices but reflects real deployments: operators leave room for growth.
+schema_version: "0.1"
+
+network:
+  id: "ps-station-lan"
+  name: "Pipeline Station LAN"
+  type: "ethernet"             # ethernet | serial-rs485 | serial-rs232
+  description: "Flat Ethernet for remote compressor station -- single subnet, no segmentation"
+
+properties:
+  subnet: "10.20.1.0/24"
+  managed_switch: false        # Unmanaged switch: no SPAN port, no port mirroring
+  span_capable: false          # Passive monitoring tools cannot observe this segment

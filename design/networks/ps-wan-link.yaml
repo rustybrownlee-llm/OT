@@ -1,0 +1,35 @@
+# ps-wan-link.yaml - Pipeline Station WAN Link Network Atom
+# Point-to-point WAN link representing satellite or cellular backhaul from the remote
+# compressor station to the central SCADA master. This network has no equivalent in
+# the greenfield water/manufacturing facility -- it is the most distinctive element
+# of the pipeline architecture.
+# Why a separate network atom? The WAN link has fundamentally different characteristics
+# than the station LAN: point-to-point topology, high latency (200ms+ RTT over satellite),
+# limited bandwidth (9.6 kbps to 256 kbps typical for VSAT), and exposure to WAN-level
+# threats. Even though both are Ethernet type at the logical layer, they operate at
+# different scales and threat levels.
+# Physical vs. logical type: The physical layer is satellite (VSAT) or cellular (4G/LTE),
+# not copper Ethernet. The design layer uses type "ethernet" because the IP/TCP framing is
+# Ethernet-encapsulated at both endpoints. The CompactLogix Ethernet port connects to a
+# satellite modem or cellular router. The schema models logical connectivity, not physical
+# media (TD-010: WAN latency properties deferred to schema v0.2 or plant runtime).
+# Why /30 subnet? A /30 provides exactly 2 usable host addresses -- one for each end of
+# the point-to-point link. This is standard practice for WAN circuits in pipeline SCADA.
+# The SCADA master uses 10.20.0.1; the station PLC uses 10.20.0.2.
+# SCADA master not simulated: only the station side of the WAN link is instantiated.
+# 10.20.0.1 exists in the subnet definition but has no placement -- it marks the boundary
+# of the simulation. The station is the training target, not the master.
+# No SPAN: WAN circuits have no local switch infrastructure to mirror. Monitoring WAN
+# traffic requires a TAP at the station -- physically difficult at remote sites.
+schema_version: "0.1"
+
+network:
+  id: "ps-wan-link"
+  name: "Pipeline Station WAN Link"
+  type: "ethernet"             # Logical type: ethernet (physical layer: satellite/cellular)
+  description: "Satellite/cellular WAN backhaul to remote SCADA master (point-to-point)"
+
+properties:
+  subnet: "10.20.0.0/30"
+  managed_switch: false        # No local switch -- direct WAN interface (modem/router)
+  span_capable: false          # No local monitoring tap point at remote station

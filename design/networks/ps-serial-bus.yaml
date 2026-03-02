@@ -1,0 +1,26 @@
+# ps-serial-bus.yaml - Pipeline Station RS-485 Serial Link Network Atom
+# RS-485 serial link connecting the TotalFlow G5 gas analyzer to the station network
+# through the Moxa NPort 5150 gateway. This is a point-to-point serial link, not a
+# multidrop bus -- the NPort 5150 has a single RS-485 serial port and only one device
+# (TotalFlow G5) is connected. A station with multiple serial analyzers would require
+# a multi-port gateway (e.g., NPort 5450) or multiple single-port gateways.
+# Why RS-485? Gas chromatographs and other analyzers at pipeline stations often predate
+# Ethernet by decades. RS-485 is the standard serial interface for these instruments.
+# Why serial despite G5 Ethernet support? The station was built when analyzers were
+# serial-only; the gateway infrastructure predates the G5's Ethernet capability.
+# Keeping the G5 off the IP network also reduces the IP attack surface at the station.
+# This is a critical teaching point: devices on the serial link are invisible to IP-based
+# network scanning. Only the gateway IP (ps-gw-01) is visible to scanners. This creates
+# a gap in OT asset inventory tools that rely on IP discovery.
+# No subnet property -- serial networks have no IP addressing.
+schema_version: "0.1"
+
+network:
+  id: "ps-serial-bus"
+  name: "Pipeline Station RS-485 Serial Link"
+  type: "serial-rs485"         # ethernet | serial-rs485 | serial-rs232
+  description: "RS-485 serial link from Moxa gateway to TotalFlow G5 gas analyzer"
+
+properties:
+  managed_switch: false        # Serial link: no switch, no monitoring tap point
+  span_capable: false          # No passive monitoring -- gateway is the only IP endpoint

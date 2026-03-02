@@ -1,0 +1,120 @@
+# environment.yaml - Pipeline Monitoring Station
+# Single compressor station on a natural gas transmission pipeline.
+# The station boosts pipeline pressure using gas turbine-driven centrifugal compressors.
+# The station is unmanned -- operators monitor from a central control room via WAN.
+#
+# Network topology:
+#   [SCADA Master - not simulated]
+#          |
+#    ps-wan-link (satellite/cellular, 10.20.0.0/30)
+#          |
+#     [ps-plc-01]  CompactLogix (station PLC / SCADA gateway, dual-homed)
+#          |
+#   ps-station-lan (flat Ethernet, 10.20.1.0/24)
+#   /      |      \
+# [ps-rtu-01] [ps-rtu-02] [ps-gw-01]  Moxa NPort 5150
+# ROC800        ROC800           |
+# metering      monitoring  ps-serial-bus (RS-485 serial link)
+#                                |
+#                           [ps-fc-01]  TotalFlow G5
+#                           gas analysis
+#
+# Key educational contrasts with greenfield-water-mfg:
+# - Flat station LAN vs. Purdue-segmented water treatment network
+# - WAN backhaul vs. local-only network
+# - Unmanned remote site vs. staffed facility
+# - Measurement/custody-transfer focus vs. process control focus
+# - ROC800 RTUs (one-based addressing) alongside CompactLogix (zero-based addressing)
+#
+# Dual-homing (ps-plc-01): The CompactLogix listens for Modbus TCP on BOTH its station
+# LAN IP (10.20.1.10) and its WAN IP (10.20.0.2), serving the same register map on both.
+# It does NOT route IP packets between the two networks. Compromising the PLC gives
+# WAN access to compressor control registers, but NOT direct IP access to ROC800s or
+# the Moxa gateway. This is a critical security teaching point.
+schema_version: "0.1"
+
+environment:
+  id: "pipeline-monitoring"
+  name: "Pipeline Monitoring Station"
+  description: "Remote unmanned compressor station with flat station LAN and WAN backhaul to SCADA master"
+
+# All networks used by placements in this environment must be listed here.
+# Serial links are networks too -- they just have no subnet property.
+networks:
+  - ref: "ps-station-lan"
+  - ref: "ps-serial-bus"
+  - ref: "ps-wan-link"
+
+# Placements wire device atoms onto networks with specific addressing.
+# Each placement ID must be unique within this environment.
+# For Ethernet devices: ip + modbus_port identify the Modbus TCP endpoint.
+# For serial devices: serial_address + gateway identify the endpoint (accessed via gateway IP).
+placements:
+  # Station PLC and SCADA gateway -- dual-homed on station LAN and WAN link.
+  # Serves the compressor-control register map. Acts as the unified Modbus interface
+  # that the remote SCADA master polls over the WAN for station-wide data.
+  - id: "ps-plc-01"
+    device: "compactlogix-l33er"
+    network: "ps-station-lan"
+    ip: "10.20.1.10"
+    modbus_port: 5040
+    role: "Station PLC and SCADA gateway -- compressor control and data aggregation"
+    register_map_variant: "compressor-control"
+    additional_networks:
+      # WAN-facing interface: SCADA master polls this IP over satellite/cellular backhaul.
+      # The CompactLogix listens on this IP but does NOT route between WAN and station LAN.
+      - network: "ps-wan-link"
+        ip: "10.20.0.2"
+
+  # Pipeline metering RTU -- custody-transfer flow measurement.
+  # AGA-3 orifice flow calculation: DP, static pressure, and temperature inputs.
+  # The financial backbone of the station: measured volumes determine billing.
+  - id: "ps-rtu-01"
+    device: "emerson-roc800"
+    network: "ps-station-lan"
+    ip: "10.20.1.20"
+    modbus_port: 5041
+    role: "Pipeline metering RTU -- custody-transfer flow measurement (AGA-3)"
+    register_map_variant: "pipeline-metering"
+
+  # Station monitoring RTU -- inlet/outlet pressures, temperatures, and valve control.
+  # Monitors station-wide process conditions and controls block valves.
+  # ESD valve status is read-only (hardwired de-energize-to-trip per DOT 49 CFR 192).
+  - id: "ps-rtu-02"
+    device: "emerson-roc800"
+    network: "ps-station-lan"
+    ip: "10.20.1.21"
+    modbus_port: 5042
+    role: "Station monitoring RTU -- inlet/outlet pressures, temperatures, and valve control"
+    register_map_variant: "station-monitoring"
+
+  # Serial-to-Ethernet gateway for legacy gas analyzers.
+  # Bridges the station LAN to the RS-485 serial link on which the TotalFlow G5 resides.
+  # The NPort 5150 has one serial port -- this is a point-to-point link, not a multidrop bus.
+  # Only this gateway IP is visible to network scanners; the TotalFlow G5 is invisible to IP tools.
+  - id: "ps-gw-01"
+    device: "moxa-nport-5150"
+    network: "ps-station-lan"
+    ip: "10.20.1.30"
+    modbus_port: 5043
+    role: "Serial-to-Ethernet gateway for TotalFlow G5 gas analyzer"
+    # NOTE: pipeline-serial variant is a simulated abstraction for educational purposes.
+    # Real NPort 5150 devices do not expose Modbus registers of their own.
+    register_map_variant: "pipeline-serial"
+    bridges:
+      # This gateway bridges Modbus TCP from ps-station-lan to Modbus RTU on ps-serial-bus.
+      - from_network: "ps-station-lan"
+        to_network: "ps-serial-bus"
+
+  # TotalFlow G5 gas analyzer -- gas composition and BTU calculation.
+  # Serial device: no Modbus TCP port. Accessed via ps-gw-01 at IP 10.20.1.30, port 5043.
+  # Analysis values update every 5-10 minutes per chromatograph cycle. Stale values
+  # between cycles are NORMAL BEHAVIOR, not a communication failure.
+  # Manipulating BTU or specific gravity values has direct financial impact on custody transfer.
+  - id: "ps-fc-01"
+    device: "abb-totalflow-g5"
+    network: "ps-serial-bus"
+    serial_address: 1
+    gateway: "ps-gw-01"
+    role: "Gas chromatograph interface -- gas composition analysis and BTU/SG calculation"
+    register_map_variant: "gas-analysis"

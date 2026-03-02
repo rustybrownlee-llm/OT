@@ -94,6 +94,101 @@ register_map_variants:
       - { address: 1, name: distribution_pump_02_run, writable: true, description: "Distribution pump 2 run command (0=stop, 1=run)" }
       - { address: 2, name: booster_pump_run,          writable: true, description: "Booster pump run command for cross-plant supply" }
 
+  compressor-control:
+    # Gas turbine-driven centrifugal compressor control.
+    # CompactLogix serves as the "station PLC" aggregating compressor unit data for SCADA.
+    # In real compressor stations, each compressor unit has its own Unit PLC (often vendor-supplied).
+    # The station PLC aggregates unit data and provides the SCADA interface.
+    # Imperial units throughout -- US pipeline industry standard for compressor stations.
+    # Zero-based addressing (CompactLogix convention -- contrast with ROC800 one-based convention).
+    holding:
+      - address: 0
+        name: "compressor_speed"
+        description: "Compressor shaft speed (centrifugal compressor driven by gas turbine; 3000-5500 RPM operating range)"
+        unit: "RPM"
+        scale_min: 0
+        scale_max: 6000           # Gas turbine-driven centrifugal: 3000-5500 RPM operating; headroom to 6000 for transients
+        writable: false
+      - address: 1
+        name: "suction_pressure"
+        description: "Compressor suction (inlet) pressure from upstream pipeline"
+        unit: "PSIG"
+        scale_min: 0
+        scale_max: 1500           # Transmission pipeline: 400-800 PSIG typical at suction
+        writable: false
+      - address: 2
+        name: "discharge_pressure"
+        description: "Compressor discharge (outlet) pressure to downstream pipeline (compression ratio typically 1.2-2.0)"
+        unit: "PSIG"
+        scale_min: 0
+        scale_max: 1500           # 800-1400 PSIG typical at discharge
+        writable: false
+      - address: 3
+        name: "bearing_temp_drive_end"
+        description: "Compressor drive-end radial bearing temperature (proximity to gas turbine makes this the hotter bearing). Normal: 150-250 degF. Alarm: 275. Trip: 300."
+        unit: "degF"
+        scale_min: 0
+        scale_max: 350            # Range covers trip threshold (300 degF) with headroom
+        writable: false
+      - address: 4
+        name: "bearing_temp_non_drive_end"
+        description: "Compressor non-drive-end radial bearing temperature. Normal: 150-250 degF. Alarm: 275. Trip: 300."
+        unit: "degF"
+        scale_min: 0
+        scale_max: 350
+        writable: false
+      - address: 5
+        name: "vibration_overall"
+        description: "Compressor overall vibration level (radial, peak-to-peak). Bently Nevada 3300 or equivalent proximity probes. Normal: <2 mils. Alarm: 3 mils. Trip: 5 mils."
+        unit: "mils"
+        scale_min: 0
+        scale_max: 10             # Range beyond trip threshold (5 mils) to capture transient exceedances
+        writable: false
+      - address: 6
+        name: "lube_oil_pressure"
+        description: "Lube oil header pressure at bearing inlet (low pressure is critical: bearing failure risk). Normal: 25-45 PSIG. Low alarm: 15 PSIG. Trip: 10 PSIG."
+        unit: "PSIG"
+        scale_min: 0
+        scale_max: 100            # [OT-REVIEW] Changed from 60 to 100: provides headroom for fault conditions and matches common 0-100 PSIG transmitter range
+        writable: false
+      - address: 7
+        name: "lube_oil_temperature"
+        description: "Lube oil temperature at bearing inlet (maintained 120-140 degF by oil cooler). High alarm: 160. Oil breakdown risk >180 degF."
+        unit: "degF"
+        scale_min: 0
+        scale_max: 200            # Covers alarm threshold (160) and breakdown zone (180+)
+        writable: false
+      - address: 8
+        name: "compressor_status_word"
+        description: "Compressor status bitmask: bit0=running, bit1=ready, bit2=tripped, bit3=surge-detected, bit4=high-vibration, bit5=high-bearing-temp, bit6=low-lube-oil, bit7=ESD-active"
+        unit: "bitmask"
+        scale_min: 0
+        scale_max: 65535
+        writable: false
+    coils:
+      # [OT-REVIEW] Single run_cmd coil matches water/mfg coil pattern.
+      # 1=run initiates full startup sequence: lube oil priming, ignition, ramp to speed.
+      # 0=stop initiates controlled shutdown: unload, cool-down, secure.
+      # All permissives (lube oil, vibration, temp) must be satisfied before startup sequence proceeds.
+      - address: 0
+        name: "compressor_run_cmd"
+        description: "[OT-REVIEW] Single run/stop command (1=run startup sequence, 0=controlled stop). Requires all permissives satisfied. Replaces separate start/stop coils to match water/mfg coil pattern."
+        writable: true
+      # [OT-REVIEW] E-stop is hardwired safety -- PLC reads the circuit state but cannot override it.
+      # E-stop trips the compressor immediately, bypassing the normal cool-down shutdown sequence.
+      - address: 1
+        name: "compressor_e_stop"
+        description: "[OT-REVIEW] Emergency stop circuit active -- hardwired safety, PLC reads but cannot override. Trips compressor immediately bypassing normal shutdown sequence."
+        writable: false           # [OT-REVIEW] Hardwired safety: read-only status, not Modbus-writable command
+      - address: 2
+        name: "surge_protection_active"
+        description: "Anti-surge protection system active (read-only -- anti-surge controller opens recycle valve automatically when compressor approaches surge line)"
+        writable: false
+      - address: 3
+        name: "compressor_tripped"
+        description: "Compressor has tripped on safety interlock (read-only -- high vibration, high bearing temp, low lube oil, or ESD. Requires local reset after fault clearance.)"
+        writable: false
+
 diagnostics:
   web_server: true
   web_port: 80

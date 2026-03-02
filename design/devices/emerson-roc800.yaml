@@ -1,0 +1,242 @@
+# emerson-roc800.yaml - Emerson ROC800 Series Remote Operations Controller
+# Pipeline SCADA RTU designed for remote, unmanned custody-transfer metering stations.
+# Unlike PLCs that execute control logic at high speed, the ROC800 is designed for
+# remote data acquisition, AGA gas flow calculations, and SCADA master polling response.
+# [OT-REVIEW] ROC Protocol (proprietary Emerson) is the configuration protocol.
+# Modbus TCP/RTU is the SCADA polling protocol (ROC800 acts as Modbus slave).
+# ROCLink 800 software configures registers via ROC Protocol over Ethernet or serial.
+# Point Type 118 defines the user-configurable Modbus register mapping on the device.
+schema_version: "0.1"
+
+device:
+  id: "emerson-roc800"
+  vendor: "Emerson"
+  model: "ROC800 Series"
+  category: "rtu"               # First RTU in the device library -- distinct from PLC category
+  vintage: 2018
+  description: "Pipeline SCADA RTU / flow computer for custody-transfer gas measurement. Native Modbus TCP/RTU. Runs AGA-3/7/9 flow calculations for up to 6 meter runs."
+
+connectivity:
+  ports:
+    # Ethernet: 10BASE-T on the ROC800 base unit. Modbus TCP slave on port 502.
+    # The SCADA master polls this device; the ROC800 does not initiate connections.
+    - type: "ethernet"
+      protocols: ["modbus-tcp"]
+    # RS-232 COMM2 port: Modbus RTU slave for local serial connections or
+    # legacy SCADA masters. RS-232 (not RS-485) -- point-to-point only, not multidrop.
+    - type: "rs232"
+      protocols: ["modbus-rtu"]
+  response_delay_ms: 20         # 15-30ms typical: embedded PowerPC (PowerQUICC, 65MHz), not a high-speed PLC
+  response_jitter_ms: 30        # [OT-REVIEW] Changed from 10 to 30: models burst-latency during AGA calculation cycles
+  concurrent_connections: 4     # [OT-REVIEW] ROC800 Ethernet supports max 4 TCP connections;
+                                # 1 typically reserved for ROCLink 800 configuration.
+                                # RS-232 serial port is always single-connection (point-to-point).
+
+# Register capabilities define what this device type supports in terms of address space.
+# These are hardware limits, not role-specific register assignments.
+# The ROC827 with expansion chassis supports up to 27 I/O modules; 2000 holding registers
+# provides ample space for all configurable measurement and status values.
+# [OT-REVIEW] One-based addressing is the Emerson ROC800 convention for Modbus register maps.
+# ROCLink 800 and the ROC800 firmware both use one-based register numbering.
+registers:
+  max_holding: 2000
+  max_coils: 500
+  max_input_registers: 2000
+  max_discrete_inputs: 500
+  addressing: "one-based"       # Emerson convention: Modbus registers start at address 1
+  # ROC800 uses big-endian (network byte order) for Modbus by default.
+  # 32-bit floats use ABCD word order (high word first). v0.1 schema uses 16-bit
+  # scaled integers only (TD-006: 32-bit float pairs deferred to schema v0.2).
+  float_byte_order: "big-endian"
+  max_registers_per_read: 125   # Full Modbus specification maximum
+
+# Register map variants define role-specific register layouts.
+# All addresses are one-based per Emerson ROC800 convention.
+# Each variant must stay within the declared register capacity above.
+register_map_variants:
+  pipeline-metering:
+    # Custody-transfer gas metering station: meter run 1 with full AGA-3 inputs.
+    # [OT-REVIEW] AGA-3 orifice flow calculation requires three inputs: differential
+    # pressure (DP) across the orifice plate, static pressure (SP), and flowing temperature (T).
+    # DP is the primary flow measurement and the financial manipulation attack surface --
+    # spoofing DP directly alters calculated volume and therefore billing.
+    # Replaced meter runs 2-4 flow rates with DP to show the actual AGA-3 measurement inputs.
+    # These registers are the financial backbone of gas pipeline operations:
+    # the measured volumes determine who pays whom at custody transfer points.
+    # Addresses are one-based per Emerson ROC800 convention.
+    holding:
+      - address: 1
+        name: "meter_run_1_flow_rate"
+        description: "Meter run 1 instantaneous flow rate (AGA-3 calculated from DP, pressure, temp)"
+        unit: "MSCFH"
+        scale_min: 0
+        scale_max: 5000           # Thousand standard cubic feet per hour; typical 8-inch orifice run
+        writable: false
+      - address: 2
+        name: "meter_run_1_volume_today"
+        description: "Meter run 1 accumulated volume since contract day rollover (midnight or 9:00 AM per contract). [OT-REVIEW] Accumulator resets to zero at contract hour; scale_max is physical range, not raw register limit."
+        unit: "MCF"
+        scale_min: 0
+        scale_max: 100000         # [OT-REVIEW] Physical daily volume range, not raw register limit. Resets at contract hour.
+        writable: false
+      - address: 3
+        name: "meter_run_1_pressure"
+        description: "Meter run 1 static line pressure upstream of orifice plate"
+        unit: "PSIG"
+        scale_min: 0
+        scale_max: 1500           # Transmission pipeline operating pressure range
+        writable: false
+      - address: 4
+        name: "meter_run_1_temperature"
+        description: "Meter run 1 flowing gas temperature (RTD sensor in thermowell)"
+        unit: "degF"
+        scale_min: -20
+        scale_max: 150            # Outdoor pipeline: winter lows to summer highs plus compression heat
+        writable: false
+      - address: 5
+        name: "meter_run_1_differential_pressure"
+        description: "[OT-REVIEW] AGA-3 orifice flow calculation requires DP across the orifice plate as the primary measurement input. DP is the financial manipulation attack surface: spoofing DP directly alters calculated volume. SP (register 3) and T (register 4) are the other two AGA-3 inputs."
+        unit: "inH2O"
+        scale_min: 0
+        scale_max: 200            # Inches of water column. Typical orifice DP: 10-100 inH2O. Range covers full transmitter span.
+        writable: false
+      - address: 6
+        name: "station_total_flow"
+        description: "Sum of all active meter run flow rates (station aggregate, calculated by RTU)"
+        unit: "MSCFH"
+        scale_min: 0
+        scale_max: 20000          # 4 meter runs at 5000 MSCFH max each
+        writable: false
+      - address: 7
+        name: "station_total_volume_today"
+        description: "Station accumulated total volume since contract day rollover (sum of all meter runs). [OT-REVIEW] Resets to zero at contract hour; scale_max is physical range, not raw register limit."
+        unit: "MCF"
+        scale_min: 0
+        scale_max: 100000         # [OT-REVIEW] Physical daily volume range, not raw register limit. Resets at contract hour.
+        writable: false
+    coils:
+      # Meter run enable/disable coils: operators disable runs during calibration or maintenance.
+      # Disabling a run removes it from AGA calculations and station totals.
+      # An attacker disabling all runs to zero would show zero flow while gas continues to flow.
+      - address: 1
+        name: "meter_run_1_enabled"
+        description: "Meter run 1 AGA calculation enabled (operators disable runs during maintenance/calibration)"
+        writable: true
+      - address: 2
+        name: "meter_run_2_enabled"
+        description: "Meter run 2 AGA calculation enabled"
+        writable: true
+      - address: 3
+        name: "meter_run_3_enabled"
+        description: "Meter run 3 AGA calculation enabled"
+        writable: true
+      - address: 4
+        name: "meter_run_4_enabled"
+        description: "Meter run 4 AGA calculation enabled"
+        writable: true
+
+  station-monitoring:
+    # Station inlet/outlet monitoring and valve control.
+    # This variant monitors the station as a whole, not individual meter runs.
+    # Inlet = gas arriving from upstream pipeline; outlet = gas departing downstream.
+    # The ESD (Emergency Shutdown) valve is the most critical element: closing it
+    # stops all gas flow through the station. ESD is hardwired de-energize-to-trip --
+    # not commanded via Modbus write (DOT 49 CFR 192 requirement).
+    # Addresses are one-based per Emerson ROC800 convention.
+    holding:
+      - address: 1
+        name: "station_inlet_pressure"
+        description: "Pipeline pressure at station inlet (upstream of compressor)"
+        unit: "PSIG"
+        scale_min: 0
+        scale_max: 1500           # Transmission pipeline: 200-1200 PSIG typical
+        writable: false
+      - address: 2
+        name: "station_outlet_pressure"
+        description: "Pipeline pressure at station outlet (downstream of compressor)"
+        unit: "PSIG"
+        scale_min: 0
+        scale_max: 1500
+        writable: false
+      - address: 3
+        name: "station_inlet_temperature"
+        description: "Gas temperature at station inlet"
+        unit: "degF"
+        scale_min: -20
+        scale_max: 150
+        writable: false
+      - address: 4
+        name: "station_outlet_temperature"
+        description: "[OT-REVIEW] Gas temperature at station outlet, downstream of aftercooler (compression heat removed). Post-aftercooler is the more common RTU measurement point."
+        unit: "degF"
+        scale_min: -20
+        scale_max: 150            # [OT-REVIEW] Post-aftercooler measurement point; compression heat removed by cooler
+        writable: false
+      - address: 5
+        name: "inlet_block_valve_position"
+        description: "Station inlet block valve position (0=closed, 100=full open)"
+        unit: "%"
+        scale_min: 0
+        scale_max: 100
+        writable: false           # Valve position is read from limit switches; commands are via coils
+      - address: 6
+        name: "outlet_block_valve_position"
+        description: "Station outlet block valve position (0=closed, 100=full open)"
+        unit: "%"
+        scale_min: 0
+        scale_max: 100
+        writable: false
+      - address: 7
+        name: "esd_valve_position"
+        description: "Emergency shutdown valve position (0=closed/safe, 100=open/flowing). ESD valve fails closed on loss of instrument air or power (fail-safe design)."
+        unit: "%"
+        scale_min: 0
+        scale_max: 100
+        writable: false
+      - address: 8
+        name: "station_status_word"
+        description: "Station status bitmask: bit0=running, bit1=ESD-active, bit2=high-pressure-alarm, bit3=low-pressure-alarm, bit4=high-temp-alarm, bit5=comm-failure, bit6=power-failure, bit7=f-and-g-system-alarm. [OT-REVIEW] F&G (Fire and Gas) is a separate safety system; RTU receives consolidated alarm input, not raw fire detection."
+        unit: "bitmask"
+        scale_min: 0
+        scale_max: 65535
+        writable: false
+    coils:
+      # [OT-REVIEW] ESD circuit is hardwired de-energize-to-trip.
+      # Modbus write cannot initiate or reset ESD per DOT 49 CFR 192.
+      # Communications failure IS an ESD condition -- the RTU de-energizes the trip relay on comms loss.
+      - address: 1
+        name: "esd_activate"
+        description: "[OT-REVIEW] ESD circuit status as reported by RTU. ESD initiation is hardwired (de-energize-to-trip relay circuit) -- it is not commanded via Modbus write. Communications failure IS an ESD condition. Cannot be reset remotely per DOT 49 CFR 192."
+        writable: false           # [OT-REVIEW] ESD is hardwired safety, not a Modbus-writable coil
+      - address: 2
+        name: "inlet_block_valve_cmd"
+        description: "Inlet block valve open/close command (0=close, 1=open)"
+        writable: true
+      - address: 3
+        name: "outlet_block_valve_cmd"
+        description: "Outlet block valve open/close command (0=close, 1=open)"
+        writable: true
+      - address: 4
+        name: "esd_active_status"
+        description: "ESD sequence is active (read-only status -- cannot be reset remotely, requires local operator per DOT 49 CFR 192)"
+        writable: false
+
+# [OT-REVIEW] ROC800 does not expose a general-purpose HTTP web interface.
+# Real pipeline operators use ROCLink 800 software over Ethernet or serial
+# for configuration and diagnostics. Web server is not accessible via standard browser.
+# ROC800 stores extensive event/alarm history in onboard flash (fault_log).
+diagnostics:
+  web_server: false             # [OT-REVIEW] Vendor firmware page only, not a general web interface
+  web_port: 80
+  snmp: false
+  syslog: false
+  fault_log: true
+  fault_log_depth: 500          # ROC800 stores extensive event and alarm history in flash memory
+
+# Technical Debt:
+# TD-007: Meter run registers are simplified -- only run 1 has full AGA-3 detail (flow, volume,
+#         pressure, temp, DP). Real ROC800 exposes all values per run for up to 6 runs.
+#         Resolution: Add per-run registers when 32-bit float pairs are supported (TD-006).
+# TD-009: ROC Protocol (proprietary Emerson) is not simulated -- only Modbus.
+#         Real ROC800 configuration and historical data retrieval uses ROC Protocol,
+#         which has different security implications. Resolution: Future per ADR-002.

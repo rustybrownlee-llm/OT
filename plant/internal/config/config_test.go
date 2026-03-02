@@ -303,8 +303,8 @@ func TestLoadDevice_CompactLogix_WaterTreatment(t *testing.T) {
 		}
 	}
 
-	if got := len(dev.RegisterMapVariants); got != 3 {
-		t.Errorf("register_map_variants count = %d, want 3", got)
+	if got := len(dev.RegisterMapVariants); got != 4 {
+		t.Errorf("register_map_variants count = %d, want 4", got)
 	}
 }
 

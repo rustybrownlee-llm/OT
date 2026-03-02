@@ -1,0 +1,153 @@
+# abb-totalflow-g5.yaml - ABB TotalFlow XFC G5 Flow Computer
+# Fifth-generation TotalFlow flow computer for gas measurement and custody transfer.
+# This is a specialized measurement instrument, not a general-purpose controller.
+# Its primary function is receiving gas composition data from a Natural Gas Chromatograph
+# (NGC) and calculating heating value (BTU), specific gravity, and moisture content.
+# These values feed into AGA flow calculations on the ROC800 for billing accuracy.
+# This is the first flow-computer category device in the simulator.
+# The distinction from rtu is important: flow computers calculate, they do not command.
+schema_version: "0.1"
+
+device:
+  id: "abb-totalflow-g5"
+  vendor: "ABB"
+  model: "TotalFlow XFC G5"
+  category: "flow-computer"     # Specialized measurement device -- distinct from rtu and plc categories
+  vintage: 2020
+  description: "Gas chromatograph interface and flow computer. Receives NGC analysis data, calculates BTU heating value and specific gravity for custody-transfer billing."
+
+connectivity:
+  ports:
+    # Ethernet: 10/100BASE-T. Modbus TCP slave on port 502.
+    # G5 generation supports user-configurable Modbus register mapping (unlike earlier fixed-map models).
+    - type: "ethernet"
+      protocols: ["modbus-tcp"]
+    # RS-485 COMM2: connects to ABB NGC 8206/8209 Natural Gas Chromatograph.
+    # The chromatograph sends analysis results over this serial link every 5-10 minutes.
+    - type: "rs485"
+      protocols: ["modbus-rtu"]
+  response_delay_ms: 25         # 20-40ms: measurement-focused device, not optimized for fast polling
+  response_jitter_ms: 15        # Analysis calculation cycles introduce timing variability
+  concurrent_connections: 4     # Ethernet supports multiple TCP clients (SCADA, HMI, historian)
+
+# Register capabilities define what this device type supports in terms of address space.
+# G5 generation allows full register customization via TotalFlow PCCU32 configuration software.
+# [OT-REVIEW] One-based addressing is the ABB TotalFlow convention for Modbus register maps.
+registers:
+  max_holding: 1000
+  max_coils: 100
+  max_input_registers: 1000
+  max_discrete_inputs: 100
+  addressing: "one-based"       # ABB TotalFlow convention: Modbus registers start at address 1
+  float_byte_order: "big-endian"
+  max_registers_per_read: 125   # Full Modbus specification maximum
+
+# Register map variants define role-specific register layouts.
+# All addresses are one-based per ABB TotalFlow convention.
+register_map_variants:
+  gas-analysis:
+    # Gas composition analysis from NGC (Natural Gas Chromatograph).
+    # Values update every 5-10 minutes when chromatograph completes an analysis cycle.
+    # Stale values between cycles are NORMAL BEHAVIOR -- not a communication failure.
+    # Between cycles, all composition and calculated registers hold their last valid values.
+    # These composition values feed into AGA flow calculations on the ROC800 for billing accuracy.
+    # Manipulating BTU or specific gravity values has direct financial impact on custody transfer.
+    # Addresses are one-based per ABB TotalFlow convention.
+    holding:
+      - address: 1
+        name: "methane_pct"
+        description: "Methane (CH4) concentration in gas stream (primary component of natural gas; typical pipeline: 85-95%)"
+        unit: "%"
+        scale_min: 0
+        scale_max: 100            # Full range to accommodate off-spec or test gas
+        writable: false
+      - address: 2
+        name: "ethane_pct"
+        description: "Ethane (C2H6) concentration (second-largest component; increases heating value; typical: 2-6%)"
+        unit: "%"
+        scale_min: 0
+        scale_max: 20             # Rich gas from processing plants may reach 14%; range provides margin
+        writable: false
+      - address: 3
+        name: "propane_pct"
+        description: "Propane (C3H8) concentration (valuable NGL component; affects dew point; typical: 0.5-2%)"
+        unit: "%"
+        scale_min: 0
+        scale_max: 10             # Higher values indicate rich gas from processing plant
+        writable: false
+      - address: 4
+        name: "co2_pct"
+        description: "Carbon dioxide (CO2) concentration (contaminant; pipeline tariff spec max 2-3%; exceedance triggers gas rejection)"
+        unit: "%"
+        scale_min: 0
+        scale_max: 5              # Pipeline spec typically <2%; range covers exceedance zone for alarm modeling
+        writable: false
+      - address: 5
+        name: "nitrogen_pct"
+        description: "Nitrogen (N2) concentration (inert diluent; reduces heating value; typical: 0.5-3%)"
+        unit: "%"
+        scale_min: 0
+        scale_max: 10             # High N2 (>5%) significantly reduces BTU value; range covers off-spec scenarios
+        writable: false
+      - address: 6
+        name: "btu_heating_value"
+        description: "Calculated gross heating value (higher heating value, saturated). Primary billing determinant. Pipeline quality: 950-1150 BTU/SCF. Below 950 = off-spec gas."
+        unit: "BTU/SCF"
+        scale_min: 900            # [OT-REVIEW] Non-zero scale_min is intentional: register value 0 maps to 900 BTU/SCF. No pipeline-quality gas has heating value below 900 BTU/SCF.
+        scale_max: 1200           # Above 1150 indicates very rich or non-spec gas
+        writable: false
+      - address: 7
+        name: "specific_gravity"
+        description: "Gas specific gravity relative to air (air=1.000). Pure methane=0.554. Heavier hydrocarbons increase SG. Pipeline gas: 0.57-0.72 typical."
+        unit: "SG"
+        scale_min: 0.50           # [OT-REVIEW] Changed from 0 to 0.50: brackets real pipeline gas (0.554 pure methane to 0.75 rich gas). No physical gas has SG near zero.
+        scale_max: 1.00           # >0.75 indicates wet or rich gas requiring additional processing
+        writable: false
+      - address: 8
+        name: "moisture_content"
+        description: "Water vapor content in gas stream. Pipeline tariff typically requires <7 lb/MMSCF. Excess moisture causes hydrate formation and pipeline corrosion."
+        unit: "lb/MMSCF"
+        scale_min: 0
+        scale_max: 20             # Pipeline spec: <7. Range covers exceedance zone for training scenarios
+        writable: false
+      - address: 9
+        name: "analysis_cycle_status"
+        description: "Chromatograph analysis status (0=idle between cycles, 1=analyzing/peak detection, 2=cycle complete/values updated, 3=error/stale data). Value of 3 for >30 minutes indicates chromatograph malfunction."
+        unit: "enum"
+        scale_min: 0
+        scale_max: 3
+        writable: false
+    coils:
+      # [OT-REVIEW] Analysis cycle is NGC-autonomous -- it cannot be triggered remotely via Modbus.
+      # The NGC operates on its own internal timer (5-10 minute cycle).
+      - address: 1
+        name: "analysis_in_progress"
+        description: "[OT-REVIEW] Renamed from analysis_request. Read-only: reflects whether an analysis cycle is in progress. Remote analysis request is not supported via Modbus -- NGC operates autonomously on its own cycle timer. Cannot command the chromatograph to start an analysis via this coil."
+        writable: false
+      - address: 2
+        name: "gc_alarm_active"
+        description: "[OT-REVIEW] GC hardware fault alarm only (carrier gas depletion, column temperature fault, detector saturation). Does NOT include moisture tariff exceedance -- that is a separate alarm (coil 3). Read-only."
+        writable: false
+      # [OT-REVIEW] Moisture tariff exceedance is a process alarm, not a GC hardware fault.
+      # Separating these alarms lets trainees distinguish between instrument failure and gas quality issues.
+      - address: 3
+        name: "moisture_alarm_active"
+        description: "[OT-REVIEW] Pipeline tariff moisture exceedance alarm (>7 lb/MMSCF). Read-only. This is a process/quality alarm, separate from gc_alarm_active which covers only GC hardware faults."
+        writable: false
+
+# G5 has an embedded web interface accessible via Ethernet for configuration and diagnostics.
+# TotalFlow PCCU32 software is the primary configuration tool but the web interface
+# provides status visibility. This is different from the ROC800, which has no web interface.
+diagnostics:
+  web_server: true              # G5 has embedded web interface for configuration and status
+  web_port: 80
+  snmp: false
+  syslog: false
+  fault_log: true
+  fault_log_depth: 200          # Analysis event history (cycle start/stop, errors, composition changes)
+
+# Technical Debt:
+# TD-008: Gas analysis only includes 5 components (methane, ethane, propane, CO2, N2).
+#         Real NGC 8206 reports C4-C6+ fractions, water dew point, hydrocarbon dew point,
+#         and Wobbe index. Resolution: Expand when register maps support more than 9 holding
+#         registers per variant.

@@ -125,6 +125,8 @@ func TestValidateDevice_DEV005_InvalidCategory(t *testing.T) {
 		{"sensor", false},
 		{"relay", false},
 		{"safety-controller", false},
+		{"rtu", false},
+		{"flow-computer", false},
 		{"industrial-pc", true},
 		{"", true},
 	}

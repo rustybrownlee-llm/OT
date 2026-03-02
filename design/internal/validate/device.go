@@ -9,6 +9,7 @@ import (
 var validDeviceCategories = map[string]bool{
 	"plc": true, "gateway": true, "hmi": true,
 	"sensor": true, "relay": true, "safety-controller": true,
+	"rtu": true, "flow-computer": true,
 }
 
 // validFloatByteOrders lists all accepted registers.float_byte_order values.
@@ -96,7 +97,7 @@ func checkDeviceRequiredFields(path string, d *DeviceDoc, r *ValidationResult) {
 		r.Add(ValidationError{
 			File: path, Field: "device.category",
 			Message: fmt.Sprintf(
-				"invalid value %q (must be one of: plc, gateway, hmi, sensor, relay, safety-controller)",
+				"invalid value %q (must be one of: plc, rtu, flow-computer, gateway, hmi, sensor, relay, safety-controller)",
 				d.Category,
 			),
 			Severity: SeverityError, RuleID: "DEV-005",

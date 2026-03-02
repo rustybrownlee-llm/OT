@@ -67,8 +67,18 @@ func healthCheck(configPath string) error {
 }
 
 // run starts the monitoring process, then blocks until an OS signal triggers clean exit.
+// TD-020: Monitor only observes the water environment. When both profiles are active,
+// pipeline devices are unmonitored. See FR-14a for the startup warning that surfaces this gap.
 func run(configPath string) error {
 	fmt.Fprintf(os.Stdout, "{\"level\":\"INFO\",\"msg\":\"monitor starting\",\"config\":%q}\n", configPath)
+
+	// FR-14a: Warn that pipeline monitoring is not configured.
+	// This monitor only observes the water/mfg environment (wt-level3 network, known water
+	// endpoints). Pipeline devices are never monitored in this version. Emitting this warning
+	// unconditionally prevents a silent observability gap when the pipeline profile is active:
+	// operators see explicitly that pipeline traffic is outside the monitoring scope.
+	// TD-020: Remove this warning when pipeline monitoring is implemented in a future SOW.
+	fmt.Fprintf(os.Stdout, "{\"level\":\"WARN\",\"msg\":\"Pipeline environment detected but not monitored -- see TD-020.\"}\n")
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

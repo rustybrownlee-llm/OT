@@ -1,13 +1,28 @@
-# docker-compose.yml - OT Simulator Environment
-# Network topology mirrors the dual-network facility architecture per ADR-003.
-# Water treatment plant: Purdue model (Levels 1-3, VLAN-segmented)
-# Manufacturing floor: legacy flat network (192.168.1.0/24, no segmentation)
-# Cross-plant: direct Ethernet link (no firewall, models real-world default)
+# docker-compose.yml - OT Simulator Multi-Environment Orchestration
+#
+# Profile-based environment selection (FR-4: no profile starts nothing):
+#   docker compose --profile water up           -- plant-water + monitor only
+#   docker compose --profile pipeline up        -- plant-pipeline only
+#   docker compose --profile water --profile pipeline up  -- all three services
+#   docker compose up                           -- starts no services (explicit selection required)
+#
+# Both profiles can run simultaneously with no port conflicts:
+#   Water/mfg:  Modbus TCP 5020-5022, 5030
+#   Pipeline:   Modbus TCP 5040-5043
+#
+# Network topology mirrors the dual-facility architecture per ADR-003:
+#   Water treatment plant: Purdue model (Levels 1-3, VLAN-segmented)
+#   Manufacturing floor:   Legacy flat network (192.168.1.0/24, no segmentation)
+#   Pipeline station:      Flat station LAN + WAN backhaul to SCADA master
 
 name: ot-simulator
 
 networks:
-  # Water treatment plant - Level 3: Site Operations (SCADA, engineering workstation)
+  # --------------------------------------------------------------------------
+  # Water treatment plant -- Purdue-segmented (Levels 1-3)
+  # --------------------------------------------------------------------------
+
+  # Level 3: Site Operations (SCADA, engineering workstation)
   wt-level3:
     name: ot-wt-level3
     driver: bridge
@@ -20,7 +35,7 @@ networks:
       ot.purdue-level: "3"
       ot.description: "Site Operations - SCADA server and engineering workstation"
 
-  # Water treatment plant - Level 2: Area Supervisory Control (HMI operator stations)
+  # Level 2: Area Supervisory Control (HMI operator stations)
   wt-level2:
     name: ot-wt-level2
     driver: bridge
@@ -33,7 +48,7 @@ networks:
       ot.purdue-level: "2"
       ot.description: "Area Supervisory Control - HMI operator stations"
 
-  # Water treatment plant - Level 1: Basic Process Control (PLCs and I/O modules)
+  # Level 1: Basic Process Control (PLCs and I/O modules)
   wt-level1:
     name: ot-wt-level1
     driver: bridge
@@ -46,7 +61,10 @@ networks:
       ot.purdue-level: "1"
       ot.description: "Basic Process Control - PLCs and I/O modules"
 
-  # Manufacturing floor - legacy flat network (no VLANs, no segmentation)
+  # --------------------------------------------------------------------------
+  # Manufacturing floor -- legacy flat network (no VLANs, no segmentation)
+  # --------------------------------------------------------------------------
+
   mfg-flat:
     name: ot-mfg-flat
     driver: bridge
@@ -59,8 +77,12 @@ networks:
       ot.purdue-level: "legacy-flat"
       ot.description: "Legacy flat network - no VLANs, unmanaged switch, circa 1993"
 
-  # Cross-plant connection - direct cable between water treatment and manufacturing
-  # Models the dangerous default: no firewall, no segmentation at the boundary
+  # --------------------------------------------------------------------------
+  # Cross-plant connection -- direct Ethernet link (no firewall, no segmentation)
+  # Models the dangerous default: no protection at the boundary between modern
+  # and legacy networks.
+  # --------------------------------------------------------------------------
+
   cross-plant:
     name: ot-cross-plant
     driver: bridge
@@ -72,14 +94,62 @@ networks:
       ot.environment: "cross-plant"
       ot.description: "Direct link between water treatment Level 1 and manufacturing (no firewall)"
 
+  # --------------------------------------------------------------------------
+  # Pipeline monitoring station -- flat station LAN (unmanaged switch)
+  # --------------------------------------------------------------------------
+
+  ps-station-lan:
+    name: ot-ps-station-lan
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.1.0/24
+          gateway: 10.20.1.1
+    labels:
+      ot.environment: "pipeline-monitoring"
+      ot.description: "Pipeline station LAN - flat Ethernet, unmanaged switch, single subnet"
+
+  # Pipeline monitoring station -- WAN backhaul to remote SCADA master
+  # TD-022: No latency simulation on this Docker bridge. Real satellite/cellular WAN
+  # links have 500-700ms RTT; Docker bridge delivers sub-1ms. See ot.latency-note below.
+  #
+  # NOTE: mfg-serial-bus (RS-485) is NOT modeled as a Docker network. RS-485 is a
+  # physical serial bus that cannot be represented as a Docker bridge.
+  # TD-021: Port 5043 carries Modbus TCP from the Moxa NPort 5150 gateway. Serial
+  # devices behind it (TotalFlow G5) are accessed via unit ID routing through the
+  # gateway port. Port scans of the serial bus are not possible in the simulator.
+  ps-wan-link:
+    name: ot-ps-wan-link
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.0.0/30
+          # OT-REVIEW: gateway omitted intentionally. On this /30 subnet the only
+          # usable host addresses are 10.20.0.1 (SCADA master) and 10.20.0.2
+          # (plant-pipeline container). Docker assigns the bridge gateway IP to its
+          # internal interface; specifying gateway: 10.20.0.1 would steal the SCADA
+          # master address. Omitting the field lets Docker auto-assign a non-conflicting
+          # address outside the usable host range.
+    labels:
+      ot.environment: "pipeline-monitoring"
+      ot.description: "Satellite/cellular WAN backhaul - point-to-point link to remote SCADA master"
+      ot.latency-simulated: "false"
+      ot.latency-note: "Real VSAT: 500-700ms RTT. Docker bridge: sub-1ms. See TD-022."
+
 services:
-  # Plant simulator: hosts all virtual PLCs and process simulation
-  plant:
+  # --------------------------------------------------------------------------
+  # plant-water: greenfield water/manufacturing environment (profile: water)
+  # Hosts all water treatment PLCs (Levels 1-3) and manufacturing floor devices.
+  # Modbus TCP: 5020-5022 (water treatment), 5030 (manufacturing Moxa gateway).
+  # --------------------------------------------------------------------------
+  plant-water:
+    profiles: ["water"]
     build:
       context: .
       dockerfile: plant/Dockerfile
-    container_name: ot-plant
+    container_name: ot-plant-water
     restart: unless-stopped
+    command: ["--environment", "/design/environments/greenfield-water-mfg", "--log-level", "info"]
     networks:
       wt-level3:
         ipv4_address: 10.10.30.10
@@ -100,13 +170,17 @@ services:
       - "5020:5020"
       - "5021:5021"
       - "5022:5022"
-      # Modbus TCP - manufacturing floor devices
-      # TD-019: mfg-serial-bus (RS-485) is declared in environment.yaml but has no Docker network.
-      # RS-485 is a physical serial bus; it cannot be modeled as a Docker bridge network.
-      # Port 5030 carries Modbus TCP from the NPort 5150 serial gateway to host-accessible clients.
+      # Modbus TCP - manufacturing floor devices via NPort 5150 serial gateway
+      # TD-019: mfg-serial-bus (RS-485) has no Docker network representation.
+      # Port 5030 carries Modbus TCP from the NPort 5150 to host-accessible clients.
       - "5030:5030"
       # HMI ports (8080 water treatment, 8081 manufacturing) are intentionally omitted.
-      # No HMI exists in Beta 0.1. They are declared in plant/Dockerfile EXPOSE for future use.
+      # No HMI exists in Beta 0.2. They are declared in plant/Dockerfile EXPOSE for future use.
+    environment:
+      - OTS_LOG_LEVEL=info
+      # OTS_HEALTH_PORTS overrides the hardcoded default in the plant binary.
+      # FR-7: Health check must verify water/mfg-specific ports, not the pipeline range.
+      - OTS_HEALTH_PORTS=5020,5021,5022,5030
     healthcheck:
       test: ["CMD", "/plant", "--health"]
       interval: 5s
@@ -115,24 +189,83 @@ services:
       start_period: 10s
     volumes:
       - ./design:/design:ro
-    environment:
-      - OTS_LOG_LEVEL=info
     labels:
       ot.component: "plant-simulator"
+      ot.environment: "greenfield-water-mfg"
       ot.description: "Simulated plant process: water treatment PLCs and manufacturing floor devices"
 
-  # Security monitoring: observes plant traffic externally over the network
-  # IMPORTANT: This container has no direct code access to the plant module.
-  # It interacts only over the network, exactly as real monitoring tools do.
+  # --------------------------------------------------------------------------
+  # plant-pipeline: pipeline monitoring station environment (profile: pipeline)
+  # Remote unmanned compressor station with flat station LAN and WAN backhaul.
+  # Modbus TCP: 5040 (CompactLogix), 5041-5042 (ROC800 RTUs), 5043 (Moxa gateway).
+  #
+  # TD-023: This container is assigned 10.20.1.10 on ps-station-lan and 10.20.0.2 on
+  # ps-wan-link. The environment also defines devices at 10.20.1.20, 10.20.1.21,
+  # and 10.20.1.30, which the plant binary simulates internally. Docker cannot assign
+  # multiple IPs to one container on the same network. Same class of limitation as TD-018.
+  #
+  # Note: ps-serial-bus (RS-485) is NOT modeled as a Docker network. See TD-021.
+  # --------------------------------------------------------------------------
+  plant-pipeline:
+    profiles: ["pipeline"]
+    build:
+      context: .
+      dockerfile: plant/Dockerfile
+    container_name: ot-plant-pipeline
+    restart: unless-stopped
+    command: ["--environment", "/design/environments/pipeline-monitoring", "--log-level", "info"]
+    networks:
+      ps-station-lan:
+        ipv4_address: 10.20.1.10
+      ps-wan-link:
+        ipv4_address: 10.20.0.2
+    ports:
+      # Modbus TCP - CompactLogix L33ER (station PLC / SCADA gateway, dual-homed)
+      - "5040:5040"
+      # Modbus TCP - Emerson ROC800 RTU (pipeline metering, AGA-3 custody transfer)
+      - "5041:5041"
+      # Modbus TCP - Emerson ROC800 RTU (station monitoring, pressures and valve control)
+      - "5042:5042"
+      # Modbus TCP - Moxa NPort 5150 gateway (bridges to TotalFlow G5 on RS-485 serial)
+      # TD-021: Serial device ps-fc-01 (TotalFlow G5) is accessed via unit ID routing
+      # through this port. Port scans of the RS-485 bus are not possible.
+      - "5043:5043"
+    environment:
+      - OTS_LOG_LEVEL=info
+      # OTS_HEALTH_PORTS overrides the hardcoded default in the plant binary.
+      # FR-10: Health check must verify pipeline-specific ports, not the water/mfg range.
+      - OTS_HEALTH_PORTS=5040,5041,5042,5043
+    healthcheck:
+      test: ["CMD", "/plant", "--health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ./design:/design:ro
+    labels:
+      ot.component: "plant-simulator"
+      ot.environment: "pipeline-monitoring"
+      ot.description: "Simulated pipeline compressor station: CompactLogix SCADA gateway, ROC800 RTUs, Moxa serial gateway"
+
+  # --------------------------------------------------------------------------
+  # monitor: security monitoring service (profile: water)
+  # Observes plant-water externally over the network -- no plant package imports.
+  # Attached to wt-level3 only; polls Modbus TCP from the SCADA network level.
+  # This service is intentionally limited to the water profile (FR-13).
+  # TD-020: Pipeline devices are unmonitored when both profiles are active.
+  #         Monitor emits a WARN log on startup if OTS_PIPELINE_ACTIVE is set (FR-14a).
+  # --------------------------------------------------------------------------
   monitor:
+    profiles: ["water"]
     build:
       context: ./monitoring
       dockerfile: Dockerfile
     container_name: ot-monitor
     restart: unless-stopped
     networks:
-      # Monitor attached to Level 3 only -- it polls Modbus TCP from SCADA network
-      # Packet capture scenarios use network_mode: host or a dedicated capture interface
+      # Monitor attached to Level 3 only -- it polls Modbus TCP from SCADA network.
+      # Packet capture scenarios use network_mode: host or a dedicated capture interface.
       wt-level3:
         ipv4_address: 10.10.30.20
     ports:
@@ -141,7 +274,7 @@ services:
       # Alert API
       - "8091:8091"
     depends_on:
-      plant:
+      plant-water:
         condition: service_healthy
     volumes:
       # Mount monitoring config read-only. The image also contains a copy as fallback
@@ -150,6 +283,9 @@ services:
     environment:
       - OTS_LOG_LEVEL=info
       - OTS_PLANT_ADDR=10.10.30.10
+      # FR-14a: The monitor binary unconditionally emits a WARN at startup that pipeline
+      # monitoring is not configured. This surfaces the TD-020 observability gap to the
+      # operator without requiring any env var coordination -- it is always true in Beta 0.2.
     healthcheck:
       # TD-012: This health check only verifies config is readable, not that monitoring
       # is functional. Upgrade when the monitoring module has real endpoints.

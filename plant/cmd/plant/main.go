@@ -11,7 +11,9 @@
 //	--environment  Path to a design layer environment directory containing environment.yaml
 //	               (default: ../design/environments/greenfield-water-mfg, relative to plant/)
 //	--log-level    Log verbosity: debug | info | warn | error (default: info)
-//	--health       Perform a health check: TCP connect to all four Modbus ports and exit 0/1.
+//	--health       Perform a health check: TCP connect to all Modbus ports and exit 0/1.
+//	               Ports checked are determined by OTS_HEALTH_PORTS (comma-separated).
+//	               When OTS_HEALTH_PORTS is unset, falls back to the water/mfg defaults.
 //	               Used as the Docker container HEALTHCHECK command.
 package main
 
@@ -22,6 +24,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -38,7 +41,8 @@ const (
 	healthCheckTimeout = 2 * time.Second
 )
 
-// modbusPorts lists every Modbus TCP port the plant binary must serve.
+// modbusPorts is the default health check port list (water/mfg environment).
+// For non-water environments, set OTS_HEALTH_PORTS to override.
 // The health check verifies all four sides: water treatment (5020-5022) and
 // manufacturing floor (5030). Checking only water treatment would silently pass
 // if the manufacturing side failed to bind -- obscuring the core educational contrast.
@@ -82,17 +86,49 @@ func main() {
 }
 
 // healthCheck attempts a TCP connection to each Modbus port with a 2s timeout.
-// Returns an error describing the first port that is unreachable.
+// The port list is determined by OTS_HEALTH_PORTS (comma-separated). When that
+// variable is unset or empty, it falls back to modbusPorts (water/mfg defaults).
+//
+// All port failures are collected before returning so that the error message
+// provides per-port status. Failing on the first unreachable port hides
+// downstream failures and makes multi-device environments harder to debug
+// (e.g., "ports 5041,5043 not reachable" is more useful than "port 5041 not
+// reachable" when 5043 is also down).
 func healthCheck() error {
-	for _, port := range modbusPorts {
+	ports := modbusPorts
+	if envPorts := os.Getenv("OTS_HEALTH_PORTS"); envPorts != "" {
+		ports = parsePortList(envPorts)
+	}
+
+	var failed []string
+	for _, port := range ports {
 		addr := net.JoinHostPort("localhost", port)
 		conn, err := net.DialTimeout("tcp", addr, healthCheckTimeout)
 		if err != nil {
-			return fmt.Errorf("port %s not reachable: %w", port, err)
+			failed = append(failed, port)
+			continue
 		}
 		conn.Close()
 	}
+	if len(failed) > 0 {
+		return fmt.Errorf("ports not reachable: %s (%d/%d healthy)",
+			strings.Join(failed, ", "), len(ports)-len(failed), len(ports))
+	}
 	return nil
+}
+
+// parsePortList splits a comma-separated port string, trims whitespace from each
+// token, and filters empty tokens. Returns an empty slice for an empty input.
+func parsePortList(s string) []string {
+	parts := strings.Split(s, ",")
+	ports := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			ports = append(ports, p)
+		}
+	}
+	return ports
 }
 
 // initialize loads the design layer environment and constructs the logger.
@@ -158,21 +194,35 @@ func buildEngine(stores []mbserver.PlacementStore, logger logging.Logger) *proce
 }
 
 // buildModel selects and constructs the appropriate ProcessModel for a placement.
-// Returns nil for unknown variants (they have no process model in this SOW).
+// Returns nil for unknown variants (they have no process model in this release).
 func buildModel(ps mbserver.PlacementStore, logger logging.Logger) process.ProcessModel {
 	switch ps.RegisterMapVariant {
+	// Water treatment variants (SOW-003.0)
 	case "water-intake":
 		return process.NewIntakeModel(ps.Store, nil)
 	case "water-treatment":
 		return process.NewTreatmentModel(ps.Store, nil)
 	case "water-distribution":
 		return process.NewDistributionModel(ps.Store, nil)
+	// Manufacturing variants (SOW-003.0)
 	case "mfg-line-a":
 		return process.NewLineAModel(ps.Store, nil)
 	case "mfg-cooling":
 		return process.NewCoolingModel(ps.Store, nil)
+	// Serial gateway variants (SOW-003.0 / SOW-009.0)
 	case "serial-gateway":
 		return process.NewGatewayModel(ps.Store, nil)
+	case "pipeline-serial":
+		return process.NewPipelineGatewayModel(ps.Store, nil)
+	// Pipeline variants (SOW-009.0)
+	case "compressor-control":
+		return process.NewCompressorModel(ps.Store, nil)
+	case "pipeline-metering":
+		return process.NewMeteringModel(ps.Store, nil)
+	case "station-monitoring":
+		return process.NewStationMonitorModel(ps.Store, nil)
+	case "gas-analysis":
+		return process.NewGasAnalysisModel(ps.Store, nil)
 	default:
 		logger.Debug("no process model for variant, simulation skipped",
 			"placement", ps.PlacementID,

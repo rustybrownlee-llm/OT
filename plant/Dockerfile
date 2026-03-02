@@ -28,7 +28,19 @@ COPY --from=builder /plant /plant
 # Source path is relative to the project root build context.
 COPY design/ /design/
 
-EXPOSE 5020-5039 8080 8081
+# EXPOSE documents ports that plant services bind. It is metadata for orchestration
+# tooling (Docker Compose, Kubernetes) -- not a firewall rule. EXPOSE does not publish
+# ports to the host or restrict access. Actual host binding is controlled by the
+# ports: key in docker-compose.yml or -p on docker run.
+#
+# 5020-5039: water/mfg environment Modbus TCP (greenfield-water-mfg)
+# 5040-5049: pipeline environment Modbus TCP (pipeline-monitoring)
+# 8080, 8081: HMI (water treatment and manufacturing) -- reserved, not yet active
+EXPOSE 5020-5039 5040-5049 8080 8081
 
 ENTRYPOINT ["/plant"]
+# Default environment for standalone docker run.
+# Docker Compose services override this via the command: key per service,
+# allowing both plant-water and plant-pipeline to use the same image with
+# different --environment paths.
 CMD ["--environment", "/design/environments/greenfield-water-mfg", "--log-level", "info"]

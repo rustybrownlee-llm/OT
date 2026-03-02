@@ -1,0 +1,19 @@
+{{define "statusBadge"}}
+{{if eq . "online"}}<span class="badge bg-success">Online</span>
+{{else if eq . "offline"}}<span class="badge bg-danger">Offline</span>
+{{else}}<span class="badge bg-secondary">{{.}}</span>{{end}}
+{{end}}
+
+{{define "severityBadge"}}
+{{if eq . "critical"}}<span class="badge bg-danger">Critical</span>
+{{else if eq . "high"}}<span class="badge bg-warning text-dark">High</span>
+{{else if eq . "warning"}}<span class="badge bg-warning text-dark">Warning</span>
+{{else}}<span class="badge bg-secondary">{{.}}</span>{{end}}
+{{end}}
+
+{{define "baselineBadge"}}
+{{if eq . "established"}}<span class="badge bg-primary">Established</span>
+{{else if eq . "learning"}}<span class="badge bg-secondary">Learning</span>
+{{else if eq . "stale"}}<span class="badge bg-warning text-dark">Stale</span>
+{{else}}<span class="badge bg-secondary">{{.}}</span>{{end}}
+{{end}}

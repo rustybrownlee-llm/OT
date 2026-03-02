@@ -1,0 +1,22 @@
+log_level: "info"
+poll_interval_seconds: 2
+gateway_request_delay_ms: 10
+api_addr: ":8091"
+
+environments:
+  - name: "water-mfg"
+    address: "10.10.30.10"
+    endpoints:
+      - port: 5020
+        unit_id: 1
+        description: "wt-plc-01 (water intake)"
+      - port: 5030
+        gateway: true
+        scan_unit_ids: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 247]
+        description: "mfg-gateway-01 (Moxa NPort 5150)"
+  - name: "pipeline"
+    address: "10.20.1.10"
+    endpoints:
+      - port: 5040
+        unit_id: 1
+        description: "ps-plc-01 (CompactLogix)"

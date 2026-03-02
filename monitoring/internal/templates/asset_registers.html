@@ -1,0 +1,97 @@
+{{define "asset_registers_content"}}
+{{if .Registers}}
+{{if .Registers.HoldingRegisters}}
+<div class="card mb-3">
+    <div class="card-header fw-semibold">Holding Registers</div>
+    <div class="card-body p-0">
+        <p class="px-3 pt-2 text-muted small mb-1">
+            Values are raw Modbus register contents (unsigned 16-bit integers).
+            See the device atom's register map for scaling formulas to convert to engineering units.
+        </p>
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Address</th>
+                        {{if $.Enriched}}<th>Name</th><th>Unit</th><th>Scaled Value</th>{{end}}
+                        <th>Raw uint16 (unscaled)</th>
+                        <th>Hex</th>
+                        {{if $.Enriched}}<th>Access</th><th>Description</th>{{end}}
+                    </tr>
+                </thead>
+                <tbody>
+                {{range $i, $v := .Registers.HoldingRegisters}}
+                {{$ri := index $.RegisterInfo $i}}
+                <tr{{if and $ri $ri.Writable}} class="writable-row"{{end}}>
+                    <td><code>{{$i}}</code></td>
+                    {{if $.Enriched}}
+                    <td>{{if $ri}}{{$ri.Name}}{{else}}<span class="text-muted">—</span>{{end}}</td>
+                    <td>{{if $ri}}{{$ri.Unit}}{{else}}—{{end}}</td>
+                    <td>{{if $ri}}{{$ri.ScaledValue}}{{else}}—{{end}}</td>
+                    {{end}}
+                    <td>{{$v}}</td>
+                    <td><code>{{printf "0x%04X" $v}}</code></td>
+                    {{if $.Enriched}}
+                    <td>
+                        {{if $ri}}
+                            {{if $ri.Writable}}<span class="badge bg-warning text-dark">Writable</span>
+                            {{else}}<span class="badge bg-secondary">Read-only</span>{{end}}
+                        {{else}}—{{end}}
+                    </td>
+                    <td class="text-muted small">{{if $ri}}{{$ri.Description}}{{end}}</td>
+                    {{end}}
+                </tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{{end}}
+{{if .Registers.Coils}}
+<div class="card mb-3">
+    <div class="card-header fw-semibold">Coils</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Address</th>
+                        {{if $.Enriched}}<th>Name</th>{{end}}
+                        <th>State</th>
+                        {{if $.Enriched}}<th>Access</th><th>Description</th>{{end}}
+                    </tr>
+                </thead>
+                <tbody>
+                {{range $i, $v := .Registers.Coils}}
+                {{$ci := index $.CoilInfo $i}}
+                <tr{{if and $ci $ci.Writable}} class="writable-row"{{end}}>
+                    <td><code>{{$i}}</code></td>
+                    {{if $.Enriched}}
+                    <td>{{if $ci}}{{$ci.Name}}{{else}}<span class="text-muted">—</span>{{end}}</td>
+                    {{end}}
+                    <td>
+                        {{if $v}}<span class="badge bg-success">TRUE</span>
+                        {{else}}<span class="badge bg-secondary">FALSE</span>{{end}}
+                    </td>
+                    {{if $.Enriched}}
+                    <td>
+                        {{if $ci}}
+                            {{if $ci.Writable}}<span class="badge bg-warning text-dark">Writable</span>
+                            {{else}}<span class="badge bg-secondary">Read-only</span>{{end}}
+                        {{else}}—{{end}}
+                    </td>
+                    <td class="text-muted small">{{if $ci}}{{$ci.Description}}{{end}}</td>
+                    {{end}}
+                </tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{{end}}
+{{else}}
+<div class="alert alert-secondary">No register data available yet. Polling in progress.</div>
+{{end}}
+{{end}}

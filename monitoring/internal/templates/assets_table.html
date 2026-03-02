@@ -1,0 +1,48 @@
+{{define "assets_table_content"}}
+{{range .Groups}}
+<h5 class="mt-3">Environment: <span class="text-primary">{{.Name}}</span></h5>
+<div class="table-responsive mb-4">
+    <table class="table table-bordered table-hover table-sm">
+        <thead class="table-dark">
+            <tr>
+                <th>Device</th>
+                <th>Endpoint</th>
+                <th>Unit ID</th>
+                <th>Connection</th>
+                <th>Addressing</th>
+                <th>Holding Regs</th>
+                <th>Coils</th>
+                <th>Response (ms)</th>
+                <th>Status</th>
+                <th>Design Atom</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .Assets}}
+        <tr{{if eq .Status "offline"}} class="offline-row"{{end}}>
+            <td><a href="/assets/{{.ID}}">{{.ConfigDesc}}</a></td>
+            <td><code>{{.Endpoint}}</code></td>
+            <td>{{.UnitID}}</td>
+            <td>{{.ConnectionType}}</td>
+            <td>{{.Addressing}}</td>
+            <td>{{.HoldingRegCount}}</td>
+            <td>{{.CoilCount}}</td>
+            <td>{{printf "%.1f" .ResponseTimeMs}}</td>
+            <td>
+                {{if eq .Status "online"}}<span class="badge bg-success">Online</span>
+                {{else}}<span class="badge bg-danger">Offline</span>{{end}}
+            </td>
+            <td>
+                {{if .DeviceAtomID}}
+                <a href="/design/devices/{{.DeviceAtomID}}" class="btn btn-sm btn-outline-secondary">View Atom</a>
+                {{else}}<span class="text-muted">—</span>{{end}}
+            </td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{else}}
+<div class="alert alert-secondary">No assets discovered yet.</div>
+{{end}}
+{{end}}

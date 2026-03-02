@@ -1,0 +1,51 @@
+{{define "content"}}
+<div class="row mb-3">
+    <div class="col">
+        <h2>Anomaly Alerts</h2>
+        <p class="text-muted">Timeline of detected OT protocol anomalies, most recent first.</p>
+    </div>
+</div>
+{{if .AlertsUnavailable}}
+<div class="alert alert-secondary" role="alert">
+    Baseline and anomaly detection not yet available.
+    The alerts feature requires SOW-013.0 (Baseline and Anomaly Detection) to be implemented.
+</div>
+{{else}}
+<form class="row g-2 mb-3" method="get" action="/alerts">
+    <div class="col-auto">
+        <select name="severity" class="form-select form-select-sm">
+            <option value="">All Severities</option>
+            <option value="critical"{{if eq .FilterSeverity "critical"}} selected{{end}}>Critical</option>
+            <option value="high"{{if eq .FilterSeverity "high"}} selected{{end}}>High</option>
+            <option value="warning"{{if eq .FilterSeverity "warning"}} selected{{end}}>Warning</option>
+        </select>
+    </div>
+    <div class="col-auto">
+        <select name="device" class="form-select form-select-sm">
+            <option value="">All Devices</option>
+            {{range .DeviceOptions}}
+            <option value="{{.}}"{{if eq $.FilterDevice .}} selected{{end}}>{{.}}</option>
+            {{end}}
+        </select>
+    </div>
+    <div class="col-auto">
+        <select name="rule" class="form-select form-select-sm">
+            <option value="">All Rules</option>
+            {{range .RuleOptions}}
+            <option value="{{.}}"{{if eq $.FilterRule .}} selected{{end}}>{{.}}</option>
+            {{end}}
+        </select>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+        <a href="/alerts" class="btn btn-sm btn-outline-secondary">Clear</a>
+    </div>
+</form>
+<div id="alerts-table"
+     hx-get="/partials/alerts-table?severity={{.FilterSeverity}}&device={{.FilterDevice}}&rule={{.FilterRule}}"
+     hx-trigger="every 5s"
+     hx-swap="innerHTML">
+    {{template "alerts_table_content" .}}
+</div>
+{{end}}
+{{end}}

@@ -249,25 +249,25 @@ services:
       ot.description: "Simulated pipeline compressor station: CompactLogix SCADA gateway, ROC800 RTUs, Moxa serial gateway"
 
   # --------------------------------------------------------------------------
-  # monitor: security monitoring service (profile: water)
-  # Observes plant-water externally over the network -- no plant package imports.
-  # Attached to wt-level3 only; polls Modbus TCP from the SCADA network level.
-  # This service is intentionally limited to the water profile (FR-13).
-  # TD-020: Pipeline devices are unmonitored when both profiles are active.
-  #         Monitor emits a WARN log on startup if OTS_PIPELINE_ACTIVE is set (FR-14a).
+  # monitor: security monitoring service (profiles: water, pipeline)
+  # Observes both plant environments externally over the network -- no plant imports.
+  # Attached to both wt-level3 and ps-station-lan to monitor both environments.
+  # TD-020 resolved: monitor now covers both water/mfg and pipeline environments.
   # --------------------------------------------------------------------------
   monitor:
-    profiles: ["water"]
+    profiles: ["water", "pipeline"]
     build:
       context: ./monitoring
       dockerfile: Dockerfile
     container_name: ot-monitor
     restart: unless-stopped
     networks:
-      # Monitor attached to Level 3 only -- it polls Modbus TCP from SCADA network.
-      # Packet capture scenarios use network_mode: host or a dedicated capture interface.
+      # Level 3 SCADA network -- water/mfg environment visibility
       wt-level3:
         ipv4_address: 10.10.30.20
+      # Pipeline station LAN -- pipeline environment visibility
+      ps-station-lan:
+        ipv4_address: 10.20.1.20
     ports:
       # Security analyst dashboard
       - "8090:8090"
@@ -276,24 +276,29 @@ services:
     depends_on:
       plant-water:
         condition: service_healthy
+        required: false
+      plant-pipeline:
+        condition: service_healthy
+        required: false
     volumes:
       # Mount monitoring config read-only. The image also contains a copy as fallback
       # (see monitoring/Dockerfile), but the volume mount takes precedence at runtime.
       - ./monitoring/config:/config:ro
+      # Design library mounted read-only for future SOW-014.0 dashboard use.
+      # The monitor binary does NOT read this mount in SOW-012.0.
+      - ./design:/design:ro
     environment:
       - OTS_LOG_LEVEL=info
-      - OTS_PLANT_ADDR=10.10.30.10
-      # FR-14a: The monitor binary unconditionally emits a WARN at startup that pipeline
-      # monitoring is not configured. This surfaces the TD-020 observability gap to the
-      # operator without requiring any env var coordination -- it is always true in Beta 0.2.
     healthcheck:
-      # TD-012: This health check only verifies config is readable, not that monitoring
-      # is functional. Upgrade when the monitoring module has real endpoints.
+      # Real health check: HTTP GET /api/health verifies monitoring is functional.
+      # TD-012 resolved: replaced file-existence check with API connectivity check.
       test: ["CMD", "/monitor", "--health"]
       interval: 5s
       timeout: 3s
       retries: 3
-      start_period: 5s
+      start_period: 15s
     labels:
       ot.component: "security-monitor"
       ot.description: "External security monitoring - Modbus polling and anomaly detection"
+      ot.monitoring-placement: "level-3-scada"
+      ot.monitoring-note: "[OT-REVIEW] Monitor at Level 3 observes SCADA polling traffic only. Traffic between Level 1 PLCs (e.g., PLC-to-PLC comms) is not visible from this vantage point. Compare with a Dragos sensor at a Level 1 SPAN port."

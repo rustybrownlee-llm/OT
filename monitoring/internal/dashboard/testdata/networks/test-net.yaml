@@ -1,0 +1,11 @@
+schema_version: "0.1"
+network:
+  id: "test-net"
+  name: "Test Network"
+  type: "ethernet"
+  description: "Test network for unit tests"
+properties:
+  subnet: "192.168.99.0/24"
+  vlan: 99
+  managed_switch: true
+  span_capable: true

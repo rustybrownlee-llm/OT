@@ -1,0 +1,49 @@
+{{define "overview_cards_content"}}
+<div class="row g-3">
+    <div class="col-sm-6 col-lg-3">
+        <a href="/assets" class="text-decoration-none">
+            <div class="card border-success h-100">
+                <div class="card-body text-center">
+                    <h1 class="display-4 text-success">{{.DevicesOnline}}</h1>
+                    <p class="card-text text-success fw-semibold">Devices Online</p>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+        <a href="/assets" class="text-decoration-none">
+            <div class="card border-danger h-100">
+                <div class="card-body text-center">
+                    <h1 class="display-4 text-danger">{{.DevicesOffline}}</h1>
+                    <p class="card-text text-danger fw-semibold">Devices Offline</p>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+        <a href="/alerts" class="text-decoration-none">
+            <div class="card border-warning h-100">
+                <div class="card-body text-center">
+                    <h1 class="display-4 text-warning">{{.AlertsTotal}}</h1>
+                    <p class="card-text text-warning fw-semibold">Active Alerts</p>
+                    {{if gt .AlertsCritical 0}}<small class="text-danger">{{.AlertsCritical}} critical</small>{{end}}
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <h1 class="display-4 text-primary">{{.BaselinesEstablished}}</h1>
+                <p class="card-text fw-semibold">Baselines Established</p>
+                {{if gt .BaselinesLearning 0}}<small class="text-secondary">{{.BaselinesLearning}} learning</small>{{end}}
+            </div>
+        </div>
+    </div>
+</div>
+{{if .DiscoveryInProgress}}
+<div class="alert alert-info mt-3" role="alert">
+    Discovery in progress -- asset counts will update when the first poll cycle completes.
+</div>
+{{end}}
+{{end}}

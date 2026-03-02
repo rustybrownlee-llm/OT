@@ -1,0 +1,10 @@
+log_level: "info"
+poll_interval_seconds: 0
+api_addr: ":8091"
+
+environments:
+  - name: "water-mfg"
+    address: "10.10.30.10"
+    endpoints:
+      - port: 5020
+        unit_id: 1

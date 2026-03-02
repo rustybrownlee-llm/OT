@@ -1,0 +1,30 @@
+schema_version: "0.1"
+device:
+  id: "test-plc"
+  vendor: "TestCorp"
+  model: "TestPLC 100"
+  category: "plc"
+  vintage: 2020
+  description: "Test PLC for unit tests"
+connectivity:
+  response_delay_ms: 5
+  response_jitter_ms: 2
+  concurrent_connections: 10
+registers:
+  max_holding: 100
+  max_coils: 50
+  addressing: "zero-based"
+  float_byte_order: "big-endian"
+  max_registers_per_read: 125
+register_map_variants:
+  default:
+    holding:
+      - { address: 0, name: flow_rate, unit: "L/s", scale_min: 0, scale_max: 100, writable: false, description: "Flow rate" }
+      - { address: 1, name: pump_speed, unit: "%", scale_min: 0, scale_max: 100, writable: true, description: "Pump speed setpoint" }
+    coils:
+      - { address: 0, name: pump_run, writable: true, description: "Pump run command" }
+diagnostics:
+  web_server: true
+  web_port: 80
+  fault_log: true
+  fault_log_depth: 50

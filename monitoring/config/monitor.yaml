@@ -1,22 +1,56 @@
 # monitor.yaml - Monitoring module configuration
-# Plant connection settings for the monitoring module to observe the OT environment.
 log_level: "info"
+poll_interval_seconds: 2
+gateway_request_delay_ms: 10  # [OT-REVIEW] RS-485 inter-frame gap. Min 4ms at 9600 baud.
+api_addr: ":8091"
+dashboard_addr: ":8090"
 
-plant:
-  # [OT-REVIEW] In this simulator, the plant binary hosts all virtual PLCs and is reachable
-  # at multiple IPs. The monitor polls via the wt-level3 interface (10.10.30.10) because both
-  # containers share that Docker network.
-  # In a real facility, a SCADA monitor would poll Level 1 PLC addresses directly
-  # (10.10.10.10-12) or via a DMZ historian/proxy -- NOT via the Level 3 firewall address.
-  address: "10.10.30.10"    # simulator abstraction: plant binary is multi-homed
-  modbus_endpoints:
-    - port: 5020
-      unit_id: 1             # wt-plc-01 (water intake) -- real facility Level 1 addr: 10.10.10.10
-    - port: 5021
-      unit_id: 1             # wt-plc-02 (water treatment) -- real facility Level 1 addr: 10.10.10.11
-    - port: 5022
-      unit_id: 1             # wt-plc-03 (water distribution) -- real facility Level 1 addr: 10.10.10.12
-    - port: 5030
-      # [OT-REVIEW] NPort 5150 does NOT serve registers -- it relays Modbus RTU to serial devices.
-      # Port 5030 reaches serial devices via unit ID routing, not the gateway itself.
-      unit_ids: [1, 2]       # mfg-serial-bus: unit 1 = SLC-500, unit 2 = Modicon 984
+# Behavioral baseline and anomaly detection (SOW-013.0).
+# [OT-REVIEW] Default 5-minute learning period (150 cycles at 2s polling).
+# May be insufficient for devices with long operational cycles (e.g., TotalFlow G5 NGC).
+# See TD-029 for future per-device learning period overrides.
+baseline_learning_cycles: 150  # Number of polling cycles for baseline learning
+ring_buffer_size: 300           # Samples per register per device (300 = ~10 min at 2s)
+max_alerts: 1000                # Maximum alerts retained in memory
+
+environments:
+  - name: "water-mfg"
+    # Monitor reaches the plant-water container via the wt-level3 network.
+    # All water/mfg Modbus ports are served by a single multi-homed container.
+    address: "10.10.30.10"
+    endpoints:
+      - port: 5020
+        unit_id: 1
+        description: "wt-plc-01 (water intake)"
+      - port: 5021
+        unit_id: 1
+        description: "wt-plc-02 (water treatment)"
+      - port: 5022
+        unit_id: 1
+        description: "wt-plc-03 (water distribution)"
+      - port: 5030
+        gateway: true
+        # Gateway ports: scan unit IDs to discover downstream serial devices.
+        # Unit IDs 1-10 cover typical serial device addresses.
+        # [OT-REVIEW] Unit ID 247 is a simulator convention for gateway diagnostics.
+        # Real Moxa NPort 5150 is managed via HTTP (port 80) / SNMP (port 161), not Modbus.
+        scan_unit_ids: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 247]
+        description: "mfg-gateway-01 (Moxa NPort 5150, serial-to-Ethernet)"
+
+  - name: "pipeline"
+    # Monitor reaches the plant-pipeline container via the ps-station-lan network.
+    address: "10.20.1.10"
+    endpoints:
+      - port: 5040
+        unit_id: 1
+        description: "ps-plc-01 (CompactLogix, compressor control)"
+      - port: 5041
+        unit_id: 1
+        description: "ps-rtu-01 (ROC800, pipeline metering)"
+      - port: 5042
+        unit_id: 1
+        description: "ps-rtu-02 (ROC800, station monitoring)"
+      - port: 5043
+        gateway: true
+        scan_unit_ids: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 247]
+        description: "ps-gw-01 (Moxa NPort 5150, serial-to-Ethernet)"

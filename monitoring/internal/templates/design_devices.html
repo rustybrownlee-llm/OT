@@ -1,0 +1,51 @@
+{{define "content"}}
+<div class="row mb-3">
+    <div class="col">
+        <h2>Device Library</h2>
+        <p class="text-muted">Design-layer device atom specifications. These define device capabilities independent of deployment role.</p>
+    </div>
+</div>
+{{if .LibraryUnavailable}}
+<div class="alert alert-secondary">
+    Design library not available -- mount the design/ directory to view device atom specifications.
+</div>
+{{else}}
+{{range .Groups}}
+<h5 class="mt-3 text-capitalize">Category: {{.Category}}</h5>
+<div class="table-responsive mb-4">
+    <table class="table table-bordered table-hover table-sm">
+        <thead class="table-dark">
+            <tr>
+                <th>Device ID</th>
+                <th>Vendor</th>
+                <th>Model</th>
+                <th>Vintage</th>
+                <th>Max Holding</th>
+                <th>Max Coils</th>
+                <th>Addressing</th>
+                <th>Variants</th>
+                <th>Description</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .Devices}}
+        <tr>
+            <td><a href="/design/devices/{{.Device.ID}}"><code>{{.Device.ID}}</code></a></td>
+            <td>{{.Device.Vendor}}</td>
+            <td>{{.Device.Model}}</td>
+            <td>{{.Device.Vintage}}</td>
+            <td>{{.Registers.MaxHolding}}</td>
+            <td>{{.Registers.MaxCoils}}</td>
+            <td>{{.Registers.Addressing}}</td>
+            <td>{{.VariantCount}}</td>
+            <td class="text-muted small">{{.Device.Description}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{else}}
+<div class="alert alert-secondary">No device atoms found in the design library.</div>
+{{end}}
+{{end}}
+{{end}}

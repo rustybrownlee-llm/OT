@@ -1,0 +1,42 @@
+{{define "content"}}
+<div class="row mb-3">
+    <div class="col">
+        <h2>Network Library</h2>
+        <p class="text-muted">Design-layer network atom specifications. These define network characteristics and Purdue model positioning.</p>
+    </div>
+</div>
+{{if .LibraryUnavailable}}
+<div class="alert alert-secondary">
+    Design library not available -- mount the design/ directory to view network atom specifications.
+</div>
+{{else}}
+<div class="table-responsive">
+    <table class="table table-bordered table-hover table-sm">
+        <thead class="table-dark">
+            <tr>
+                <th>Network ID</th>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Subnet</th>
+                <th>Managed Switch</th>
+                <th>SPAN Capable</th>
+                <th>Description</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .Networks}}
+        <tr>
+            <td><a href="/design/networks/{{.Network.ID}}"><code>{{.Network.ID}}</code></a></td>
+            <td>{{.Network.Name}}</td>
+            <td><span class="badge bg-info text-dark">{{.Network.Type}}</span></td>
+            <td>{{if .Properties.Subnet}}<code>{{.Properties.Subnet}}</code>{{else}}<span class="text-muted">—</span>{{end}}</td>
+            <td>{{if .Properties.ManagedSwitch}}<span class="badge bg-success">Yes</span>{{else}}<span class="badge bg-secondary">No</span>{{end}}</td>
+            <td>{{if .Properties.SPANCapable}}<span class="badge bg-success">Yes</span>{{else}}<span class="badge bg-secondary">No</span>{{end}}</td>
+            <td class="text-muted small">{{.Network.Description}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+{{end}}

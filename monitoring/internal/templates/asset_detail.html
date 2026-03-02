@@ -1,0 +1,60 @@
+{{define "content"}}
+<div class="row mb-3">
+    <div class="col">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/assets">Assets</a></li>
+                <li class="breadcrumb-item active">{{.Asset.ConfigDesc}}</li>
+            </ol>
+        </nav>
+        <h2>{{.Asset.ConfigDesc}}</h2>
+        {{if .DeviceAtomID}}
+        <a href="/design/devices/{{.DeviceAtomID}}" class="btn btn-sm btn-outline-secondary mb-3">View Design Atom</a>
+        {{end}}
+    </div>
+</div>
+<div class="row">
+    <div class="col-md-4">
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Device Metadata</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-5">Asset ID</dt>
+                    <dd class="col-7"><code>{{.Asset.ID}}</code></dd>
+                    <dt class="col-5">Endpoint</dt>
+                    <dd class="col-7"><code>{{.Asset.Endpoint}}</code></dd>
+                    <dt class="col-5">Unit ID</dt>
+                    <dd class="col-7">{{.Asset.UnitID}}</dd>
+                    <dt class="col-5">Addressing</dt>
+                    <dd class="col-7">{{.Asset.Addressing}}</dd>
+                    <dt class="col-5">Environment</dt>
+                    <dd class="col-7">{{.Asset.EnvironmentName}}</dd>
+                    <dt class="col-5">Status</dt>
+                    <dd class="col-7">
+                        {{if eq .Asset.Status "online"}}<span class="badge bg-success">Online</span>
+                        {{else}}<span class="badge bg-danger">Offline</span>{{end}}
+                    </dd>
+                    <dt class="col-5">Response</dt>
+                    <dd class="col-7">{{printf "%.1f" .Asset.ResponseTimeMs}} ms</dd>
+                    <dt class="col-5">First Seen</dt>
+                    <dd class="col-7">{{.Asset.FirstSeen.Format "2006-01-02 15:04:05"}}</dd>
+                    <dt class="col-5">Last Seen</dt>
+                    <dd class="col-7">{{.Asset.LastSeen.Format "2006-01-02 15:04:05"}}</dd>
+                    {{if .Asset.ViaGateway}}
+                    <dt class="col-5">Via Gateway</dt>
+                    <dd class="col-7"><a href="/assets/{{.Asset.ViaGateway}}"><code>{{.Asset.ViaGateway}}</code></a></dd>
+                    {{end}}
+                </dl>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-8">
+        <div id="register-values"
+             hx-get="/partials/asset-registers/{{.Asset.ID}}"
+             hx-trigger="every 2s"
+             hx-swap="innerHTML">
+            {{template "asset_registers_content" .}}
+        </div>
+    </div>
+</div>
+{{end}}

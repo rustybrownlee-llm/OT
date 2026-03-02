@@ -1,0 +1,54 @@
+{{define "alerts_table_content"}}
+{{if .Alerts}}
+<div class="table-responsive">
+    <table class="table table-bordered table-sm">
+        <thead class="table-dark">
+            <tr>
+                <th>Time</th>
+                <th>Severity</th>
+                <th>Device</th>
+                <th>Rule</th>
+                <th>Description</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .Alerts}}
+        <tr>
+            <td class="text-nowrap small">{{.Timestamp.Format "2006-01-02 15:04:05"}}</td>
+            <td>
+                {{if eq .Severity "critical"}}<span class="badge bg-danger">Critical</span>
+                {{else if eq .Severity "high"}}<span class="badge bg-warning text-dark">High</span>
+                {{else}}<span class="badge bg-warning text-dark">Warning</span>{{end}}
+            </td>
+            <td><a href="/assets/{{.DeviceID}}"><code>{{.DeviceID}}</code></a></td>
+            <td><code>{{.Rule}}</code></td>
+            <td>
+                {{.Description}}
+                {{if eq .Rule "unexpected_write"}}
+                <div class="mt-1 small text-muted">
+                    Register {{.RegisterAddr}}: {{.OldValue}} &rarr; {{.NewValue}}.
+                    <em>Modbus TCP has no authentication -- any host on this network segment can write to this register.</em>
+                </div>
+                {{end}}
+            </td>
+            <td>
+                {{if .Acknowledged}}
+                <span class="badge bg-secondary">Acknowledged</span>
+                {{else}}
+                <button class="btn btn-sm btn-outline-secondary"
+                        hx-post="/alerts/{{.ID}}/acknowledge"
+                        hx-swap="outerHTML">
+                    Acknowledge
+                </button>
+                {{end}}
+            </td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{else}}
+<div class="alert alert-secondary">No alerts match the current filters.</div>
+{{end}}
+{{end}}

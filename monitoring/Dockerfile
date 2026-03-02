@@ -3,8 +3,9 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /build
 
-# Copy module files first for layer caching
-COPY go.mod ./
+# Copy module files first for layer caching.
+# go.sum is required for dependency resolution.
+COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy source and build

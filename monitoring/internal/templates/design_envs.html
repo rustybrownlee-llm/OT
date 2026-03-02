@@ -1,0 +1,38 @@
+{{define "content"}}
+<div class="row mb-3">
+    <div class="col">
+        <h2>Environment Library</h2>
+        <p class="text-muted">Design-layer environment definitions. Each environment wires device atoms onto networks with specific addressing.</p>
+    </div>
+</div>
+{{if .LibraryUnavailable}}
+<div class="alert alert-secondary">
+    Design library not available -- mount the design/ directory to view environment definitions.
+</div>
+{{else}}
+<div class="table-responsive">
+    <table class="table table-bordered table-hover table-sm">
+        <thead class="table-dark">
+            <tr>
+                <th>Environment ID</th>
+                <th>Name</th>
+                <th>Placements</th>
+                <th>Networks</th>
+                <th>Description</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .Environments}}
+        <tr>
+            <td><a href="/design/environments/{{.Env.ID}}"><code>{{.Env.ID}}</code></a></td>
+            <td>{{.Env.Name}}</td>
+            <td>{{.PlacementCount}}</td>
+            <td>{{.NetworkCount}}</td>
+            <td class="text-muted small">{{.Env.Description}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+{{end}}

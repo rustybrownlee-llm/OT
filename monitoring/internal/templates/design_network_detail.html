@@ -1,0 +1,74 @@
+{{define "content"}}
+<div class="row mb-3">
+    <div class="col">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/design/networks">Network Library</a></li>
+                <li class="breadcrumb-item active">{{.Atom.Network.ID}}</li>
+            </ol>
+        </nav>
+        <h2>{{.Atom.Network.Name}}</h2>
+        <p class="text-muted">{{.Atom.Network.Description}}</p>
+    </div>
+</div>
+<div class="row">
+    <div class="col-md-4">
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Identity</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-5">ID</dt>
+                    <dd class="col-7"><code>{{.Atom.Network.ID}}</code></dd>
+                    <dt class="col-5">Type</dt>
+                    <dd class="col-7"><span class="badge bg-info text-dark">{{.Atom.Network.Type}}</span></dd>
+                    {{if .PurdueLevel}}
+                    <dt class="col-5">Purdue Level</dt>
+                    <dd class="col-7"><span class="badge bg-primary">{{.PurdueLevel}}</span></dd>
+                    {{end}}
+                    <dt class="col-5">Schema</dt>
+                    <dd class="col-7">{{.Atom.SchemaVersion}}</dd>
+                </dl>
+            </div>
+        </div>
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Properties</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    {{if .Atom.Properties.Subnet}}
+                    <dt class="col-6">Subnet</dt>
+                    <dd class="col-6"><code>{{.Atom.Properties.Subnet}}</code></dd>
+                    {{end}}
+                    {{if .Atom.Properties.VLAN}}
+                    <dt class="col-6">VLAN</dt>
+                    <dd class="col-6">{{.Atom.Properties.VLAN}}</dd>
+                    {{end}}
+                    <dt class="col-6">Managed Switch</dt>
+                    <dd class="col-6">{{if .Atom.Properties.ManagedSwitch}}<span class="badge bg-success">Yes</span>{{else}}<span class="badge bg-secondary">No</span>{{end}}</dd>
+                    <dt class="col-6">SPAN Capable</dt>
+                    <dd class="col-6">{{if .Atom.Properties.SPANCapable}}<span class="badge bg-success">Yes</span>{{else}}<span class="badge bg-secondary">No</span>{{end}}</dd>
+                </dl>
+            </div>
+        </div>
+        {{if .EnvRefs}}
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Environments Using This Network</div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                {{range .EnvRefs}}
+                <li><a href="/design/environments/{{.ID}}">{{.Name}}</a></li>
+                {{end}}
+                </ul>
+            </div>
+        </div>
+        {{end}}
+    </div>
+    <div class="col-md-8">
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Raw YAML Source</div>
+            <div class="card-body p-0">
+                {{template "yaml_raw_content" .RawYAML}}
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

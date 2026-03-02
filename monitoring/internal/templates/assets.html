@@ -1,0 +1,20 @@
+{{define "content"}}
+<div class="row mb-3">
+    <div class="col">
+        <h2>Asset Inventory</h2>
+        <p class="text-muted">All discovered Modbus TCP devices, grouped by environment.</p>
+    </div>
+</div>
+{{if .DiscoveryInProgress}}
+<div class="alert alert-info" role="alert">
+    Discovery in progress -- asset list will populate when the first poll cycle completes.
+</div>
+{{else}}
+<div id="assets-table"
+     hx-get="/partials/assets-table"
+     hx-trigger="every 5s"
+     hx-swap="innerHTML">
+    {{template "assets_table_content" .}}
+</div>
+{{end}}
+{{end}}

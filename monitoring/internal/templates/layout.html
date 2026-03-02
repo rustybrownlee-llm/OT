@@ -1,0 +1,52 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OT Security Monitor - {{.Title}}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        /* YAML syntax highlighting */
+        .yaml-key     { color: #0d6efd; }
+        .yaml-value   { color: #198754; }
+        .yaml-comment { color: #6c757d; font-style: italic; }
+        .yaml-list-marker { color: #dc3545; }
+        pre.yaml-source { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; overflow-x: auto; }
+
+        /* Writable register highlight */
+        .writable-row { border-left: 3px solid #fd7e14; }
+
+        /* Dimmed offline row */
+        .offline-row { opacity: 0.5; }
+
+        /* Nav section labels */
+        .nav-section-label {
+            color: rgba(255,255,255,0.5);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 0.5rem 1rem 0.25rem;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="/">OT Security Monitor</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navContent">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navContent">
+                {{template "nav" .}}
+            </div>
+        </div>
+    </nav>
+    <main class="container-fluid mt-3">
+        {{template "content" .}}
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+{{end}}

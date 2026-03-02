@@ -1,0 +1,101 @@
+{{define "content"}}
+<div class="row mb-3">
+    <div class="col">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/design/environments">Environment Library</a></li>
+                <li class="breadcrumb-item active">{{.Def.Env.ID}}</li>
+            </ol>
+        </nav>
+        <h2>{{.Def.Env.Name}}</h2>
+        <p class="text-muted">{{.Def.Env.Description}}</p>
+    </div>
+</div>
+<div class="row mb-3">
+    <div class="col-md-3">
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Networks</div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                {{range .Def.Networks}}
+                <li><a href="/design/networks/{{.Ref}}"><code>{{.Ref}}</code></a></li>
+                {{end}}
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-9">
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Placements</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Placement ID</th>
+                                <th>Device Atom</th>
+                                <th>Network</th>
+                                <th>IP Address</th>
+                                <th>Modbus Port</th>
+                                <th>Serial Addr</th>
+                                <th>Gateway</th>
+                                <th>Register Variant</th>
+                                <th>Role</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {{range .Def.Placements}}
+                        <tr>
+                            <td><code>{{.ID}}</code></td>
+                            <td><a href="/design/devices/{{.Device}}"><code>{{.Device}}</code></a></td>
+                            <td><a href="/design/networks/{{.Network}}"><code>{{.Network}}</code></a></td>
+                            <td>{{if .IP}}<code>{{.IP}}</code>{{else}}<span class="text-muted">—</span>{{end}}</td>
+                            <td>{{if .ModbusPort}}<code>{{.ModbusPort}}</code>{{else}}<span class="text-muted">—</span>{{end}}</td>
+                            <td>{{if .SerialAddress}}<code>{{.SerialAddress}}</code>{{else}}<span class="text-muted">—</span>{{end}}</td>
+                            <td>{{if .Gateway}}<a href="/design/devices/{{.Gateway}}"><code>{{.Gateway}}</code></a>{{else}}<span class="text-muted">—</span>{{end}}</td>
+                            <td>{{if .RegisterMapVariant}}<code>{{.RegisterMapVariant}}</code>{{else}}<span class="text-muted">—</span>{{end}}</td>
+                            <td class="small text-muted">{{.Role}}</td>
+                        </tr>
+                        {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Port Map</div>
+            <div class="card-body p-0">
+                <p class="px-3 pt-2 text-muted small">Modbus TCP endpoints reachable in this environment. Serial-only devices appear under their gateway entry.</p>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Placement ID</th>
+                                <th>Host Port</th>
+                                <th>Unit IDs Served</th>
+                                <th>Connection Type</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {{range .PortMap}}
+                        <tr>
+                            <td><code>{{.PlacementID}}</code></td>
+                            <td><code>{{.HostPort}}</code></td>
+                            <td>{{.UnitIDs}}</td>
+                            <td>{{.ConnectionType}}</td>
+                        </tr>
+                        {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="card mb-3">
+    <div class="card-header fw-semibold">Raw YAML Source</div>
+    <div class="card-body p-0">
+        {{template "yaml_raw_content" .RawYAML}}
+    </div>
+</div>
+{{end}}

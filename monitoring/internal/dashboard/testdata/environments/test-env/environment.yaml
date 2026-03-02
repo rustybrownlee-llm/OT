@@ -1,0 +1,15 @@
+schema_version: "0.1"
+environment:
+  id: "test-env"
+  name: "Test Environment"
+  description: "Test environment for unit tests"
+networks:
+  - ref: "test-net"
+placements:
+  - id: "test-plc-01"
+    device: "test-plc"
+    network: "test-net"
+    ip: "192.168.99.10"
+    modbus_port: 5020
+    role: "Test PLC 1"
+    register_map_variant: "default"

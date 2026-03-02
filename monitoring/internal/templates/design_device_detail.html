@@ -1,0 +1,153 @@
+{{define "content"}}
+<div class="row mb-3">
+    <div class="col">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/design/devices">Device Library</a></li>
+                <li class="breadcrumb-item active">{{.Atom.Device.ID}}</li>
+            </ol>
+        </nav>
+        <h2>{{.Atom.Device.Vendor}} {{.Atom.Device.Model}}</h2>
+        <p class="text-muted">{{.Atom.Device.Description}}</p>
+    </div>
+</div>
+<div class="row">
+    <div class="col-md-4">
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Identity</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-5">ID</dt>
+                    <dd class="col-7"><code>{{.Atom.Device.ID}}</code></dd>
+                    <dt class="col-5">Category</dt>
+                    <dd class="col-7">{{.Atom.Device.Category}}</dd>
+                    <dt class="col-5">Vintage</dt>
+                    <dd class="col-7">{{.Atom.Device.Vintage}}</dd>
+                    <dt class="col-5">Schema</dt>
+                    <dd class="col-7">{{.Atom.SchemaVersion}}</dd>
+                </dl>
+            </div>
+        </div>
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Connectivity</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-6">Response</dt>
+                    <dd class="col-6">{{.Atom.Connectivity.ResponseDelayMs}} ms</dd>
+                    <dt class="col-6">Jitter</dt>
+                    <dd class="col-6">{{.Atom.Connectivity.ResponseJitterMs}} ms</dd>
+                    <dt class="col-6">Connections</dt>
+                    <dd class="col-6">{{.Atom.Connectivity.ConcurrentConnections}}</dd>
+                </dl>
+            </div>
+        </div>
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Register Capabilities</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-6">Max Holding</dt>
+                    <dd class="col-6">{{.Atom.Registers.MaxHolding}}</dd>
+                    <dt class="col-6">Max Coils</dt>
+                    <dd class="col-6">{{.Atom.Registers.MaxCoils}}</dd>
+                    <dt class="col-6">Addressing</dt>
+                    <dd class="col-6">{{.Atom.Registers.Addressing}}</dd>
+                    <dt class="col-6">Per Read</dt>
+                    <dd class="col-6">{{.Atom.Registers.MaxRegistersPerRead}}</dd>
+                    <dt class="col-6">Float Order</dt>
+                    <dd class="col-6">{{.Atom.Registers.FloatByteOrder}}</dd>
+                </dl>
+            </div>
+        </div>
+        {{if .Atom.Diagnostics.WebServer}}
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Diagnostics</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-6">Web UI</dt>
+                    <dd class="col-6">Port {{.Atom.Diagnostics.WebPort}}</dd>
+                    {{if .Atom.Diagnostics.SNMP}}
+                    <dt class="col-6">SNMP</dt>
+                    <dd class="col-6">Yes</dd>
+                    {{end}}
+                    {{if .Atom.Diagnostics.FaultLog}}
+                    <dt class="col-6">Fault Log</dt>
+                    <dd class="col-6">{{.Atom.Diagnostics.FaultLogDepth}} entries</dd>
+                    {{end}}
+                </dl>
+            </div>
+        </div>
+        {{end}}
+        {{if .LiveAssets}}
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Live Assets</div>
+            <div class="card-body">
+                <p class="text-muted small">Observed devices matching this device type.</p>
+                <ul class="list-unstyled mb-0">
+                {{range .LiveAssets}}
+                <li><a href="/assets/{{.ID}}">{{.ConfigDesc}}</a> &mdash; <code>{{.Endpoint}}</code></li>
+                {{end}}
+                </ul>
+            </div>
+        </div>
+        {{end}}
+    </div>
+    <div class="col-md-8">
+        {{range $varName, $var := .Atom.Variants}}
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Register Map Variant: <code>{{$varName}}</code></div>
+            <div class="card-body p-0">
+                {{if $var.Holding}}
+                <h6 class="px-3 pt-3">Holding Registers</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead class="table-light">
+                            <tr><th>Addr</th><th>Name</th><th>Unit</th><th>Scale Min</th><th>Scale Max</th><th>Writable</th><th>Description</th></tr>
+                        </thead>
+                        <tbody>
+                        {{range $var.Holding}}
+                        <tr{{if .Writable}} class="writable-row"{{end}}>
+                            <td><code>{{.Address}}</code></td>
+                            <td>{{.Name}}</td>
+                            <td>{{.Unit}}</td>
+                            <td>{{.ScaleMin}}</td>
+                            <td>{{.ScaleMax}}</td>
+                            <td>{{if .Writable}}<span class="badge bg-warning text-dark">Writable</span>{{else}}<span class="badge bg-secondary">Read-only</span>{{end}}</td>
+                            <td class="small text-muted">{{.Description}}</td>
+                        </tr>
+                        {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{end}}
+                {{if $var.Coils}}
+                <h6 class="px-3 pt-3">Coils</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead class="table-light">
+                            <tr><th>Addr</th><th>Name</th><th>Writable</th><th>Description</th></tr>
+                        </thead>
+                        <tbody>
+                        {{range $var.Coils}}
+                        <tr{{if .Writable}} class="writable-row"{{end}}>
+                            <td><code>{{.Address}}</code></td>
+                            <td>{{.Name}}</td>
+                            <td>{{if .Writable}}<span class="badge bg-warning text-dark">Writable</span>{{else}}<span class="badge bg-secondary">Read-only</span>{{end}}</td>
+                            <td class="small text-muted">{{.Description}}</td>
+                        </tr>
+                        {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Raw YAML Source</div>
+            <div class="card-body p-0">
+                {{template "yaml_raw_content" .RawYAML}}
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

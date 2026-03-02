@@ -1,6 +1,6 @@
 // Command monitor is the entry point for the OT Simulator monitoring process.
-// It observes the plant environment externally -- via Modbus TCP polling and
-// network packet capture -- without importing any plant packages directly.
+// It observes the plant environment externally -- via Modbus TCP polling --
+// without importing any plant packages directly.
 //
 // This separation enforces the monitoring architecture defined in ADR-005:
 // monitoring tools must work within real OT constraints, interacting only
@@ -8,93 +8,253 @@
 //
 // Usage:
 //
-//	monitor [--config <path>] [--addr <host:port>] [--health]
+//	monitor [--config <path>] [--addr <host:port>] [--dashboard-addr <host:port>] [--health]
 //
 // Flags:
 //
-//	--config  Path to the monitoring YAML configuration file (default: config/monitor.yaml)
-//	--addr    Override the bind address for the monitoring dashboard
-//	--health  Perform a health check: verify config file is readable and exit 0/1.
-//	          Used as the Docker container HEALTHCHECK command.
+//	--config         Path to the monitoring YAML configuration file (default: /config/monitor.yaml)
+//	--addr           Override the bind address for the monitoring API (overrides config api_addr)
+//	--dashboard-addr Override the bind address for the dashboard web UI (overrides config dashboard_addr)
+//	--design-dir     Override the design library directory path (default: /design)
+//	--health         Perform a health check: HTTP GET /api/health, exit 0 (healthy/degraded) or 1.
+//	                 Used as the Docker container HEALTHCHECK command.
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+
+	"github.com/rustybrownlee/ot-simulator/monitoring/internal/api"
+	"github.com/rustybrownlee/ot-simulator/monitoring/internal/baseline"
+	"github.com/rustybrownlee/ot-simulator/monitoring/internal/config"
+	"github.com/rustybrownlee/ot-simulator/monitoring/internal/dashboard"
+	"github.com/rustybrownlee/ot-simulator/monitoring/internal/discovery"
+	"github.com/rustybrownlee/ot-simulator/monitoring/internal/inventory"
+	"github.com/rustybrownlee/ot-simulator/monitoring/internal/poller"
 )
 
-const defaultConfig = "config/monitor.yaml"
+const (
+	defaultConfig    = "/config/monitor.yaml"
+	defaultDesignDir = "/design"
+)
+
+// healthCheckTimeout is the HTTP timeout for the --health flag check.
+const healthCheckTimeout = 3 * time.Second
 
 func main() {
-	var health bool
+	var healthMode bool
 	var configPath string
-	var addr string
+	var addrOverride string
+	var dashboardAddrOverride string
+	var designDirOverride string
 
-	flag.BoolVar(&health, "health", false,
-		"perform a container health check and exit 0 (healthy) or 1 (unhealthy)")
+	flag.BoolVar(&healthMode, "health", false,
+		"perform a container health check and exit 0 (healthy/degraded) or 1 (unhealthy)")
 	flag.StringVar(&configPath, "config", defaultConfig, "path to monitoring YAML configuration file")
-	flag.StringVar(&addr, "addr", "", "override bind address for the monitoring dashboard")
+	flag.StringVar(&addrOverride, "addr", "", "override bind address for the monitoring API")
+	flag.StringVar(&dashboardAddrOverride, "dashboard-addr", "", "override bind address for the dashboard web UI")
+	flag.StringVar(&designDirOverride, "design-dir", "", "override design library directory path")
 	flag.Parse()
 
-	if health {
-		if err := healthCheck(configPath); err != nil {
+	if healthMode {
+		if err := healthCheck(configPath, addrOverride); err != nil {
 			fmt.Fprintf(os.Stderr, "monitor: health check failed: %v\n", err)
 			os.Exit(1)
 		}
 		os.Exit(0)
 	}
 
-	if err := run(configPath); err != nil {
+	if err := run(configPath, addrOverride, dashboardAddrOverride, designDirOverride); err != nil {
 		fmt.Fprintf(os.Stderr, "monitor: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-// healthCheck verifies the config file is readable. Returns an error if it cannot be opened.
-// This confirms the process has access to its required configuration, not that it has crashed.
-// TD-012: Upgrade when monitoring has real endpoints to check.
-func healthCheck(configPath string) error {
-	f, err := os.Open(configPath)
-	if err != nil {
-		return fmt.Errorf("config file %q not readable: %w", configPath, err)
+// healthCheck performs a real HTTP health check against the running monitor API.
+func healthCheck(configPath, addrOverride string) error {
+	apiAddr := resolveAPIAddr(configPath, addrOverride)
+	if apiAddr == "" {
+		apiAddr = ":8091"
 	}
-	f.Close()
+	host := apiAddr
+	if len(host) > 0 && host[0] == ':' {
+		host = "localhost" + host
+	}
+	url := "http://" + host + "/api/health"
+
+	client := &http.Client{Timeout: healthCheckTimeout}
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("GET %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET %s: status %d", url, resp.StatusCode)
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return fmt.Errorf("decode health response: %w", err)
+	}
+
+	status, _ := body["status"].(string)
+	if status == "unhealthy" {
+		return fmt.Errorf("monitor status is unhealthy: no devices reachable")
+	}
 	return nil
 }
 
-// run starts the monitoring process, then blocks until an OS signal triggers clean exit.
-// TD-020: Monitor only observes the water environment. When both profiles are active,
-// pipeline devices are unmonitored. See FR-14a for the startup warning that surfaces this gap.
-func run(configPath string) error {
-	fmt.Fprintf(os.Stdout, "{\"level\":\"INFO\",\"msg\":\"monitor starting\",\"config\":%q}\n", configPath)
+// resolveAPIAddr extracts the API address from config, then applies CLI override.
+func resolveAPIAddr(configPath, addrOverride string) string {
+	if addrOverride != "" {
+		return addrOverride
+	}
+	cfg, err := config.Parse(configPath)
+	if err != nil {
+		return ":8091"
+	}
+	return cfg.APIAddr
+}
 
-	// FR-14a: Warn that pipeline monitoring is not configured.
-	// This monitor only observes the water/mfg environment (wt-level3 network, known water
-	// endpoints). Pipeline devices are never monitored in this version. Emitting this warning
-	// unconditionally prevents a silent observability gap when the pipeline profile is active:
-	// operators see explicitly that pipeline traffic is outside the monitoring scope.
-	// TD-020: Remove this warning when pipeline monitoring is implemented in a future SOW.
-	fmt.Fprintf(os.Stdout, "{\"level\":\"WARN\",\"msg\":\"Pipeline environment detected but not monitored -- see TD-020.\"}\n")
+// run is the main application loop: parse config, start API and dashboard,
+// discover devices, start polling, and wait for shutdown signal.
+func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride string) error {
+	cfg, err := config.Parse(configPath)
+	if err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	// CLI flags override config file values.
+	if addrOverride != "" {
+		cfg.APIAddr = addrOverride
+	}
+	if dashboardAddrOverride != "" {
+		cfg.DashboardAddr = dashboardAddrOverride
+	}
 
+	designDir := defaultDesignDir
+	if designDirOverride != "" {
+		designDir = designDirOverride
+	}
+
+	slog.Info("monitor starting",
+		"config", configPath,
+		"api_addr", cfg.APIAddr,
+		"dashboard_addr", cfg.DashboardAddr,
+		"poll_interval_seconds", cfg.PollIntervalSeconds,
+		"environments", len(cfg.Environments))
+
+	// Load design library at startup (read-only after initialization).
+	lib, err := dashboard.LoadDesignLibrary(designDir)
+	if err != nil {
+		return fmt.Errorf("load design library: %w", err)
+	}
+
+	inv := inventory.NewInventory()
+	state := &poller.PollState{}
+
+	// Baseline engine (SOW-013.0): learns device behavior and detects anomalies.
+	engine := baseline.NewEngine(cfg.BaselineLearningCycles, cfg.RingBufferSize, cfg.MaxAlerts)
+
+	// Start the HTTP API before discovery so /api/health is immediately available.
+	router := api.NewRouter(inv, state, cfg.PollIntervalSeconds, engine, engine.AlertStore())
+	srv := &http.Server{
+		Addr:    cfg.APIAddr,
+		Handler: router,
+	}
+
+	srvErr := make(chan error, 2)
+	go func() {
+		slog.Info("API server listening", "addr", cfg.APIAddr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			srvErr <- err
+		}
+	}()
+
+	// Start the dashboard web server. The API client calls the API addr on loopback.
+	apiClient := dashboard.NewAPIClient(cfg.APIAddr)
+	dash := dashboard.NewDashboard(apiClient, lib)
+	dashSrv := &http.Server{
+		Addr:    cfg.DashboardAddr,
+		Handler: dash.Routes(),
+	}
+	go func() {
+		slog.Info("dashboard server listening", "addr", cfg.DashboardAddr)
+		if err := dashSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			srvErr <- err
+		}
+	}()
+
+	// Context for discovery and polling.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fmt.Fprintf(os.Stdout, "{\"level\":\"INFO\",\"msg\":\"monitor ready\"}\n")
+	// Device discovery: probe all configured endpoints.
+	slog.Info("starting device discovery")
+	disc := discovery.New(cfg, inv)
+	if err := disc.DiscoverAll(ctx); err != nil {
+		slog.Warn("discovery returned error", "error", err)
+	}
+
+	discoveredCount := inv.Count()
+	slog.Info("discovery complete", "devices_discovered", discoveredCount)
+
+	// Register all discovered device IDs with the baseline engine before polling
+	// starts. Any device that appears after this point triggers the "new device" rule.
+	allAssets := inv.List()
+	knownIDs := make([]string, 0, len(allAssets))
+	for _, a := range allAssets {
+		knownIDs = append(knownIDs, a.ID)
+	}
+	engine.SetKnownDevices(knownIDs)
+	slog.Info("baseline engine initialised",
+		"known_devices", len(knownIDs),
+		"learning_cycles", cfg.BaselineLearningCycles,
+		"max_alerts", cfg.MaxAlerts)
+
+	// Start the polling loop in a background goroutine.
+	p := poller.New(cfg, inv, state)
+	p.SetCycleHook(engine.RecordCycle)
+	go func() {
+		if err := p.Run(ctx); err != nil {
+			slog.Warn("poller exited with error", "error", err)
+		}
+	}()
+
+	// Wait for shutdown signal or server error.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
 	case sig := <-sigCh:
-		fmt.Fprintf(os.Stdout, "{\"level\":\"INFO\",\"msg\":\"received shutdown signal\",\"signal\":%q}\n", sig.String())
-	case <-ctx.Done():
-		fmt.Fprintf(os.Stdout, "{\"level\":\"INFO\",\"msg\":\"context cancelled\"}\n")
+		slog.Info("received shutdown signal", "signal", sig.String())
+	case err := <-srvErr:
+		return fmt.Errorf("server error: %w", err)
 	}
 
-	fmt.Fprintf(os.Stdout, "{\"level\":\"INFO\",\"msg\":\"monitor exited cleanly\"}\n")
+	slog.Info("shutting down")
+	cancel()
+	p.Shutdown()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("API server shutdown error", "error", err)
+	}
+	if err := dashSrv.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("dashboard server shutdown error", "error", err)
+	}
+
+	slog.Info("monitor exited cleanly")
 	return nil
 }

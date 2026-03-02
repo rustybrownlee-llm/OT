@@ -105,9 +105,17 @@ func (d *Dashboard) render(w http.ResponseWriter, name string, data any) {
 
 // renderPartial executes a named template block without the layout wrapper.
 // Used for HTMX partial responses. The named template must be in the base set.
+// Clones the base template to avoid marking it as executed, which would prevent
+// future Clone() calls in render().
 func (d *Dashboard) renderPartial(w http.ResponseWriter, name string, data any) {
+	t, err := d.base.Clone()
+	if err != nil {
+		slog.Error("partial clone error", "template", name, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := d.base.ExecuteTemplate(w, name, data); err != nil {
+	if err := t.ExecuteTemplate(w, name, data); err != nil {
 		slog.Error("partial render error", "template", name, "error", err)
 	}
 }

@@ -4,6 +4,7 @@ plant/plant
 monitoring/bin/
 monitoring/monitor
 poc/bin/
+design/ot-design
 
 # Runtime output
 plant/output/

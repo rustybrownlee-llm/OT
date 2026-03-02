@@ -1,0 +1,64 @@
+# environment.yaml - Quickstart Training Lab
+# IMPORTANT: This is a Purdue Level 1 simplification, not a production reference architecture.
+# Three PLCs on a single flat network model one Level 1 segment only. A production water
+# treatment facility would isolate this network behind Purdue Level 2 (site operations) and
+# Level 3 (site business) boundaries with firewalls and DMZs. See
+# design/environments/greenfield-water-mfg/environment.yaml for the complete Purdue model.
+#
+# Purpose: Teaching artifact for the environment authoring workflow.
+# Demonstrates: design layer composability -- the same device atoms as greenfield-water-mfg
+# deployed in a new environment with different addressing.
+#
+# Network topology:
+#   qs-lab (wt-level1, 10.10.10.0/24)
+#   |               |              |
+# [qs-plc-01]  [qs-plc-02]   [qs-plc-03]
+# CompactLogix  CompactLogix  CompactLogix
+# water-intake  water-treat   water-dist
+# .50 / 5050    .51 / 5051    .52 / 5052
+schema_version: "0.1"
+
+environment:
+  # id must match the directory name (quickstart-example).
+  id: "quickstart-example"
+  name: "Quickstart Training Lab"
+  description: "Minimal 3-PLC environment for learning the authoring workflow. Single Purdue Level 1 segment -- not a production architecture."
+
+# All networks used by any placement must be listed here.
+# This environment reuses wt-level1 (subnet 10.10.10.0/24) from the greenfield-water-mfg
+# environment. The same network atom can serve multiple environments.
+networks:
+  - ref: "wt-level1"    # Shared with greenfield-water-mfg; IPs .50-.52 avoid collision with .10-.12
+
+# Placements wire device atoms onto networks with specific addressing.
+# Each placement ID must be unique within this environment.
+placements:
+  # PLC 1 -- Water intake (raw water pumps and intake quality monitoring).
+  # Reuses the water-intake variant from compactlogix-l33er.yaml.
+  - id: "qs-plc-01"
+    device: "compactlogix-l33er"
+    network: "wt-level1"
+    ip: "10.10.10.50"         # .50 -- gap from .12 (last greenfield-water-mfg address) avoids
+    modbus_port: 5050         #        collision when both environments use wt-level1
+    role: "Quickstart PLC 1 - Water Intake"
+    register_map_variant: "water-intake"
+
+  # PLC 2 -- Water treatment (filtration, chemical dosing, UV sterilization).
+  # Reuses the water-treatment variant from compactlogix-l33er.yaml.
+  - id: "qs-plc-02"
+    device: "compactlogix-l33er"
+    network: "wt-level1"
+    ip: "10.10.10.51"         # .51 -- sequential from qs-plc-01
+    modbus_port: 5051         # Port range 5050-5059 is reserved for quickstart/examples (see CLAUDE.md)
+    role: "Quickstart PLC 2 - Water Treatment"
+    register_map_variant: "water-treatment"
+
+  # PLC 3 -- Water distribution (clear well pumps and finished water quality).
+  # Reuses the water-distribution variant from compactlogix-l33er.yaml.
+  - id: "qs-plc-03"
+    device: "compactlogix-l33er"
+    network: "wt-level1"
+    ip: "10.10.10.52"         # .52 -- sequential from qs-plc-02
+    modbus_port: 5052         # 5052 is well within the 5050-5059 reserved range
+    role: "Quickstart PLC 3 - Water Distribution"
+    register_map_variant: "water-distribution"

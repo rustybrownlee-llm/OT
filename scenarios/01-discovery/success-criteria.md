@@ -101,11 +101,51 @@ inventory and your notes from the discovery session. All items must be satisfied
 
 ---
 
+---
+
+## Dashboard-Assisted Discovery (Phase E)
+
+- [ ] **SC-25**: Monitoring dashboard opened at `http://localhost:8090`. Overview page shows 6
+  devices online for the greenfield-water-mfg environment.
+
+- [ ] **SC-26**: Assets page at `http://localhost:8090/assets` shows all 6 devices from your
+  manual inventory: wt-plc-01, wt-plc-02, wt-plc-03, mfg-gateway-01, mfg-plc-01 (unit ID 1 via
+  gateway), mfg-plc-02 (unit ID 2 via gateway). All are listed as Online. Dashboard discovery
+  matches manual inventory with no discrepancies.
+
+- [ ] **SC-27**: Design Library cross-link followed from a device detail page to the device atom
+  YAML. The `compactlogix-l33er` atom page shows vendor, model, connectivity, register
+  capabilities, and all register map variants. The page is labeled "Reference" to distinguish it
+  from live monitoring data.
+
+- [ ] **SC-28**: Can explain in one sentence the difference between "Observed" data on the asset
+  detail page (live register values from network polling) and "Reference" data on the design
+  library page (device specification from the design layer). Can state that a real OT security
+  tool would have Observed data only.
+
+- [ ] **SC-29**: Alerts page shows baseline status "Learning" for at least one device immediately
+  after monitor startup. Baseline learning is in progress and anomaly detection is not yet active.
+
+- [ ] **SC-30**: After the baseline learning period, baseline status transitions to "Established"
+  for at least one device. If the optional write exercise was performed, an anomaly alert appeared
+  on the Alerts page within one polling cycle of the coil write, and the alert was cleared after
+  restoring the original value (or remains visible as a historical record).
+
+---
+
 ## Completion Threshold
 
-A scenario is considered complete when all 24 criteria are satisfied. Partial completion is valid
-for study purposes -- if you satisfy SC-01 through SC-06, you have found all devices. The remaining
-items deepen understanding beyond basic enumeration.
+A scenario is considered complete when all 30 criteria are satisfied. Partial completion is valid
+for study purposes:
+
+- SC-01 through SC-06: All devices found (core discovery)
+- SC-07 through SC-17: Register contents and technical observations documented
+- SC-18 through SC-21: Network topology correctly mapped
+- SC-22 through SC-24: Conceptual understanding of key OT discovery concepts
+- SC-25 through SC-30: Dashboard-assisted discovery completed and monitoring concepts understood
+
+Phases A-D can be completed without the monitoring module running. Phase E requires the monitor
+to be running alongside the plant simulation.
 
 Compare your completed inventory against `reference/expected-asset-inventory.md` to verify
 register counts and addresses are correct.

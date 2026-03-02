@@ -447,3 +447,153 @@ Before closing this scenario, verify:
 - [ ] Modicon 984 is marked as one-based, little-endian (CDAB)
 - [ ] Response times recorded: 5ms / 5ms / 5ms / 15ms / 65ms / 95ms
 - [ ] Network topology diagram shows the cross-plant link
+
+---
+
+## Phase E: Dashboard-Assisted Discovery
+
+This phase requires the monitoring module to be running. Restart the compose stack with the
+monitor profile if it is not already active:
+
+```
+docker compose --profile water --profile monitor up
+```
+
+Wait 10-15 seconds for the initial discovery scan to complete.
+
+### E1: Verify the monitor has discovered all 6 devices
+
+Open the monitoring dashboard:
+
+```
+http://localhost:8090
+```
+
+Expected: Overview page shows 6 devices online.
+
+Navigate to the Assets page:
+
+```
+http://localhost:8090/assets
+```
+
+Expected output (all rows present, all status Online):
+
+```
+Environment: greenfield-water-mfg
+
+wt-plc-01     | 10.10.10.10:5020         | CompactLogix L33ER | Online
+wt-plc-02     | 10.10.10.11:5021         | CompactLogix L33ER | Online
+wt-plc-03     | 10.10.10.12:5022         | CompactLogix L33ER | Online
+mfg-gateway-01| 192.168.1.20:5030        | Moxa NPort 5150    | Online
+mfg-plc-01    | via gateway, unit ID 1   | SLC 500-05         | Online
+mfg-plc-02    | via gateway, unit ID 2   | Modicon 984        | Online
+```
+
+**Compare to manual inventory**: The 6 devices should match exactly. The monitor discovered
+the same devices you found manually in Phases A-D.
+
+### E2: Verify live register values on a water treatment PLC
+
+Click on the wt-plc-01 row to open the device detail page. The register table should show
+all 5 holding registers and 4 coils, with values updating every 2 seconds.
+
+Expected register values (approximate, values drift over time):
+
+```
+HR[0] intake_flow_rate:    ~16000-19000  (range 0-32767 maps to 0-100 L/s)
+HR[1] intake_pump_speed:   ~20000-24000  (range 0-32767 maps to 0-100%)
+HR[2] raw_water_ph:        ~13000-18000  (range 0-32767 maps to 0-14 pH)
+HR[3] raw_water_turbidity: ~3000-6000    (range 0-32767 maps to 0-100 NTU)
+HR[4] intake_water_temp:   ~7000-12000   (range 0-32767 maps to 0-40 degC)
+
+Coil[0] intake_pump_01_run:   1 (running)
+Coil[1] intake_pump_02_run:   1 (running)
+Coil[2] screen_wash_active:   0 (inactive)
+Coil[3] low_well_level_alarm: 0 (no alarm)
+```
+
+Values should match what you observed when polling port 5020 with mbpoll.
+
+### E3: Follow the Design Library cross-link
+
+From the wt-plc-01 detail page, click "View Atom" or the device type link to navigate to:
+
+```
+http://localhost:8090/design/devices/compactlogix-l33er
+```
+
+Expected: The page shows the full compactlogix-l33er.yaml with syntax highlighting. Scroll
+through the YAML to verify the water-intake register map variant is listed with addresses 0-4
+holding registers and addresses 0-3 coils -- matching exactly what the monitor observed.
+
+**Note the page label**: This page should display a "Reference" badge or label to distinguish it
+from live monitoring data. The design library shows the device specification, not the monitor's
+observations.
+
+Navigate to the environment definition:
+
+```
+http://localhost:8090/design/environments/greenfield-water-mfg
+```
+
+Expected: The environment.yaml shows all 6 placements with their network assignments, IP
+addresses, and Modbus ports.
+
+### E4: Check Alerts page and baseline status
+
+Navigate to:
+
+```
+http://localhost:8090/alerts
+```
+
+Immediately after monitor startup, you should see no anomaly alerts. The baseline status on the
+asset page should show "Learning" for all devices. The monitor is collecting polling data but
+has not yet established behavioral baselines.
+
+### E5 (Optional): Trigger an anomaly after baseline establishment
+
+Wait for the baseline learning period to complete (approximately 5 minutes). When baseline status
+transitions to "Established," write an unexpected value to a writable coil:
+
+Stop intake pump 1 on wt-plc-01:
+
+```
+mbpoll -t 0 -r 0 -c 1 -1 -0 localhost -p 5020 -- 0
+```
+
+Wait approximately 2-4 seconds (one to two polling cycles), then check the Alerts page:
+
+```
+http://localhost:8090/alerts
+```
+
+Expected: An anomaly alert appears indicating an unexpected coil state change on wt-plc-01,
+coil address 0 (intake_pump_01_run). Severity: High (unexpected write).
+
+Restore the coil to its original state:
+
+```
+mbpoll -t 0 -r 0 -c 1 -1 -0 localhost -p 5020 -- 1
+```
+
+**What you have demonstrated**: The monitor detected a one-bit change (pump off vs pump on) on
+a single coil within one polling cycle -- without any prior knowledge of what the normal value
+should be, other than the baseline it observed during the learning period.
+
+### Phase E Summary
+
+| Manual Method (Phases A-D) | Dashboard Method (Phase E) |
+|---------------------------|---------------------------|
+| nmap scan: found 4 ports | Monitor: polled all configured endpoints |
+| mbpoll per-device: found 6 devices | Monitor: enumerated all 6 devices automatically |
+| One-time register snapshot | Continuous polling, 2-second interval |
+| Discovered on first run | Baseline established after learning period |
+| Manual comparison of values | Automated anomaly detection against baseline |
+| No alert on unexpected change | Alert generated within 2 seconds of change |
+
+The monitoring dashboard is not a replacement for manual discovery skills. Understanding manual
+techniques is what allows you to interpret monitoring data correctly, design effective monitoring
+configurations, and diagnose monitoring gaps. The two approaches are complementary, not
+alternatives.

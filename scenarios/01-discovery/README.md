@@ -390,6 +390,188 @@ you have found everything.
 
 ---
 
+## Phase E: Dashboard-Assisted Discovery
+
+You have completed manual discovery using nmap and mbpoll. The monitoring module performs the same
+discovery automatically -- connecting to each configured endpoint, enumerating registers, measuring
+response times, and building an asset inventory. This phase walks you through the dashboard to see
+what the monitor found and to understand how automated monitoring compares to manual enumeration.
+
+**Starting condition**: The monitoring module must be running alongside the plant simulation. If
+you started the plant with `docker compose --profile water up`, restart with both profiles:
+
+```
+docker compose --profile water --profile monitor up
+```
+
+Wait approximately 10-15 seconds for the monitor to complete its initial discovery scan.
+
+### Step E1: Open the monitoring dashboard
+
+Open a browser and navigate to:
+
+```
+http://localhost:8090
+```
+
+You should see the Overview page. The header shows the current environment name
+("greenfield-water-mfg") and a summary count. Expect to see 6 devices reported as online.
+
+**Teaching point**: The monitor discovers devices by actively polling each configured endpoint --
+the same technique you used manually with mbpoll. The difference is that the monitor does this
+continuously and records every response to build a behavioral history. Your manual polling was a
+point-in-time snapshot. The monitor's picture improves with every polling cycle.
+
+### Step E2: Navigate to the Assets page
+
+Click "Assets" in the navigation bar, or go directly to:
+
+```
+http://localhost:8090/assets
+```
+
+You should see an asset inventory grouped by environment. The greenfield-water-mfg environment
+should list all 6 devices:
+
+| Device | Access Path | Status |
+|--------|-------------|--------|
+| wt-plc-01 | 10.10.10.10:5020 | Online |
+| wt-plc-02 | 10.10.10.11:5021 | Online |
+| wt-plc-03 | 10.10.10.12:5022 | Online |
+| mfg-gateway-01 | 192.168.1.20:5030 | Online |
+| mfg-plc-01 | via mfg-gateway-01, unit 1 | Online |
+| mfg-plc-02 | via mfg-gateway-01, unit 2 | Online |
+
+Notice that the monitor correctly identified the two serial PLCs as distinct devices accessed
+through the gateway. It enumerated unit IDs 1 and 2 automatically, found no response at unit ID 3,
+and stopped -- the same stopping rule you applied manually in Phase C.
+
+**Compare to your manual inventory**: Do the devices match? The monitor should have found the same
+6 devices you documented in Phase D. If there is a discrepancy, your manual inventory or the
+monitor configuration has a gap.
+
+**Teaching point**: The monitor's network position determines what it can see. It joins the same
+networks as the devices it monitors. A monitoring tool placed only on the water treatment Level 1
+network (10.10.10.0/24) would not reach the manufacturing gateway on 192.168.1.0/24 without
+explicit network access. Network segmentation limits not just attackers -- it limits monitoring
+tools too.
+
+### Step E3: View live register values
+
+Click on any device row to open the device detail view. The live register values update every 2
+seconds via HTMX polling. Observe the following for wt-plc-01 (intake PLC):
+
+- Register 0 (intake_flow_rate): changing slowly, range approximately 30-70 L/s
+- Register 1 (intake_pump_speed): changing slowly, range approximately 50-80%
+- Register 2 (raw_water_ph): changing slowly, range approximately 6.0-7.5 pH
+- Coil 0 (intake_pump_01_run): value 1 (pump running)
+- Coil 1 (intake_pump_02_run): value 1 (pump running)
+
+These values change with each polling cycle because the plant simulation (SOW-003.0) applies drift
+and noise to all process values. The monitor records each value with a timestamp, building a
+time-series history that will become the baseline for anomaly detection.
+
+### Step E4: Follow the Design Library cross-link
+
+On the device detail page, look for a "View Atom" button or a "Reference" link next to the device
+identification. Click it to navigate to the design-layer specification for this device type.
+
+The Design Library page for compactlogix-l33er shows the full device atom YAML: vendor, model,
+connectivity, register capabilities, and all register map variants. The page is labeled
+"Reference" -- it is documentation about what the device is designed to do, not what the monitor
+has observed.
+
+**Teaching point**: This is the ADR-005 D4 boundary in action. The "Observed" data (live register
+values on the asset detail page) comes from the monitor's network polling -- the monitor has no
+knowledge of what the registers are supposed to contain. The "Reference" data (device atom YAML on
+the design library page) is documentation describing the device's design specifications. A real
+security tool has no equivalent of the design library -- it only has what it can observe on the
+wire. The design library is an educational feature of this simulator, not a feature of real OT
+monitoring tools.
+
+You can navigate directly to the design library at:
+
+```
+http://localhost:8090/design/devices
+http://localhost:8090/design/environments
+```
+
+### Step E5: View the environment definition
+
+Navigate to the environment detail page:
+
+```
+http://localhost:8090/design/environments/greenfield-water-mfg
+```
+
+This page shows the environment.yaml -- the complete facility description including all placements,
+network assignments, IP addresses, and port mappings. Compare the placements table to your manual
+asset inventory from Phase D.
+
+Notice that the environment definition specifies the register map variant for each device. This
+is how the plant simulation knows which register layout to expose on each port. The monitor does
+NOT use this information for polling or anomaly detection -- it discovers register counts empirically
+by reading registers and observing where values stop. The environment definition is reference
+documentation only.
+
+### Step E6: Navigate to the Alerts page
+
+Click "Alerts" in the navigation bar, or go directly to:
+
+```
+http://localhost:8090/alerts
+```
+
+Initially you should see no alerts, or possibly a brief period of baseline learning notices. The
+monitor has just started and has not yet established behavioral baselines for any device.
+
+The baseline status for each device should display as "Learning" on the asset page. The monitor
+is collecting register values across polling cycles to calculate a mean and standard deviation for
+each register. Once it has gathered enough samples (default: 5 minutes of polling), the status will
+transition to "Established."
+
+**Teaching point**: Anomaly detection requires a known-good baseline. The monitor cannot detect
+abnormal behavior until it has observed enough normal behavior to characterize it. The baseline
+learning period is the time window during which the monitor is building this characterization.
+During this period, anomaly alerts are suppressed -- the monitor is not yet able to distinguish
+abnormal from normal. This is an important operational consideration: if an attacker acts during
+the baseline learning period, the attack will be incorporated into the baseline as normal behavior.
+
+### Step E7: Observe the baseline transition
+
+Wait for the baseline learning period to complete (approximately 5 minutes from startup). During
+this time, continue polling devices manually with mbpoll to observe the same values the monitor
+is recording. When the baseline learning period ends:
+
+- The baseline status on the asset page transitions from "Learning" to "Established"
+- The Alerts page becomes active for anomaly detection
+- Register values that deviate significantly from the established baseline will generate alerts
+
+**Optional exercise**: After baselines are established, write an unexpected value to a writable
+register using mbpoll. For example, stop an intake pump by writing 0 to coil 0 on port 5020:
+
+```
+mbpoll -t 0 -r 0 -c 1 -1 -0 localhost -p 5020 -- 0
+```
+
+Then check the Alerts page. Within one polling cycle (approximately 2 seconds), an anomaly alert
+should appear indicating an unexpected coil state change on wt-plc-01. This demonstrates the
+monitor detecting a change that would be invisible without continuous polling.
+
+**Note on rules of engagement**: Writing to a coil in this step intentionally triggers an alert.
+Restore the original value after observing the alert:
+
+```
+mbpoll -t 0 -r 0 -c 1 -1 -0 localhost -p 5020 -- 1
+```
+
+**Teaching point**: The monitoring dashboard performs the same discovery that you did manually in
+Phases A-D, but continuously and with historical context. Manual enumeration is a point-in-time
+photograph. Continuous monitoring is a video. The photograph tells you what exists; the video
+tells you how behavior changes over time -- and that is where anomalies become visible.
+
+---
+
 ## Hints
 
 If you are stuck at any point, read the hints in progressive order:
@@ -415,3 +597,9 @@ After completing this scenario, you should be able to explain:
    interpretation.
 6. Why a device with no Modbus coils is likely a gateway or sensor rather than a controller.
 7. Why Modbus TCP runs on port 502 in production and what the simulator port mapping means.
+8. How the monitoring dashboard automates the discovery process performed manually in Phases A-D.
+9. Why a monitoring tool's network position determines what devices it can observe.
+10. The distinction between "Observed" data (live network monitoring) and "Reference" data (design
+    layer documentation) and why real security tools only have the former.
+11. Why anomaly detection requires a baseline learning period and what risks exist during that
+    period.

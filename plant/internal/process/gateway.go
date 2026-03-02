@@ -33,54 +33,78 @@ const (
 
 // GatewayModel tracks counter state for the NPort 5150 gateway simulation.
 // Enum registers are left at their initialized values (FR-7).
+// The txPerTick, rxPerTick, and errorProb fields allow parameterization for different
+// deployment contexts (water/mfg vs pipeline-serial environments).
 type GatewayModel struct {
 	store       *mbstore.RegisterStore
 	profile     *device.DeviceProfile
+	name        string
+	txPerTick   uint32  // messages forwarded per tick (depends on downstream device count)
+	rxPerTick   uint32  // messages received per tick
+	errorProb   float64 // probability of a serial error per tick
 	txCount     uint32  // wider than uint16 to detect wrap-around
 	rxCount     uint32
 	errorCount  uint32
 	uptimeTicks uint32  // ticks since simulation start
 }
 
-// NewGatewayModel creates a GatewayModel for the given store and profile.
-// The store must be initialized with static enum values (done by NewRegisterStore
-// from the device atom InitValues).
-func NewGatewayModel(store *mbstore.RegisterStore, profile *device.DeviceProfile) *GatewayModel {
-	// Read the initialized uptime hours from the store to preserve continuity.
+// newGatewayModelParams creates a GatewayModel with explicit counter rates and error probability.
+// Callers use the exported constructors NewGatewayModel and NewPipelineGatewayModel.
+func newGatewayModelParams(store *mbstore.RegisterStore, profile *device.DeviceProfile, name string, txPerTick, rxPerTick uint32, errorProb float64) *GatewayModel {
 	var baseUptime uint32
 	if vals, err := store.ReadHolding(gatewayRegUptimeHours, 1); err == nil {
 		baseUptime = uint32(vals[0])
 	}
 	return &GatewayModel{
-		store:      store,
-		profile:    profile,
+		store:       store,
+		profile:     profile,
+		name:        name,
+		txPerTick:   txPerTick,
+		rxPerTick:   rxPerTick,
+		errorProb:   errorProb,
 		uptimeTicks: baseUptime * 3600, // convert base hours to ticks
 	}
 }
 
+// NewGatewayModel creates a GatewayModel for the water/mfg serial-gateway variant.
+// TX/RX: 2 per tick (SLC-500 + Modicon 984). Error rate: 0.2%/tick.
+// The store must be initialized with static enum values (done by NewRegisterStore
+// from the device atom InitValues).
+func NewGatewayModel(store *mbstore.RegisterStore, profile *device.DeviceProfile) *GatewayModel {
+	// [OT-REVIEW] 2 tx/tick models realistic polling of SLC-500 + Modicon 984.
+	return newGatewayModelParams(store, profile, "mfg-gateway", 2, 2, 0.002)
+}
+
+// NewPipelineGatewayModel creates a GatewayModel for the pipeline-serial variant.
+// TX/RX: 1 per tick (TotalFlow G5 only). Error rate: 0.3%/tick.
+// [OT-REVIEW] Higher error rate models high-EMI compressor station environment:
+// large electric motors, VFDs, and gas turbine ignition systems produce significant
+// electromagnetic interference on serial bus cabling.
+// PROTOTYPE-DEBT: [td-gateway-020] Counter rates are hardcoded.
+// TODO-FUTURE: Derive from environment placement topology (count serial devices behind each gateway).
+func NewPipelineGatewayModel(store *mbstore.RegisterStore, profile *device.DeviceProfile) *GatewayModel {
+	return newGatewayModelParams(store, profile, "pipeline-gateway", 1, 1, 0.003)
+}
+
 // Name returns the model identifier for logging.
 func (m *GatewayModel) Name() string {
-	return "mfg-gateway"
+	return m.name
 }
 
 // Tick advances the gateway simulation by one second.
 func (m *GatewayModel) Tick() {
 	m.uptimeTicks++
+	m.txCount += m.txPerTick
+	m.rxCount += m.rxPerTick
 
-	// TX and RX: 2 messages per tick (one per downstream serial device).
-	// [OT-REVIEW] 2 tx/tick models realistic polling of SLC-500 + Modicon 984.
-	m.txCount += 2
-	m.rxCount += 2
-
-	// Error: ~0.1% error rate (1 error per ~500 ticks at 2 tx/tick = 1 per ~250s).
-	if rand.Float64() < 0.002 { //nolint:gosec -- educational simulation, not security-critical RNG
+	if rand.Float64() < m.errorProb { //nolint:gosec -- educational simulation, not security-critical RNG
 		m.errorCount++
 	}
 
 	// Active TCP connections: random 0-2 (simulated, no real connection tracking here).
 	activeTCP := uint16(rand.Intn(3)) //nolint:gosec
 
-	// Uptime in hours. Initialized to 8760 (one year) + simulation ticks/3600.
+	// Uptime in hours. Initialized from device atom InitValue + simulation ticks/3600.
 	// [OT-REVIEW] uptime_hours counter wraps to 0 on 16-bit overflow (FR-6).
 	uptimeHours := uint16(m.uptimeTicks / 3600)
 

@@ -138,3 +138,48 @@ func TestGatewayModel_EnumRegisters_RemainStatic(t *testing.T) {
 		t.Errorf("serial_mode changed: initial=%d", serialMode)
 	}
 }
+
+// TestPipelineGatewayModel_TXRXCountersIncrementByOnePerTick verifies that the pipeline
+// gateway increments TX and RX counters by 1 per tick (only one downstream serial device:
+// TotalFlow G5). This differs from the water/mfg gateway which increments by 2/tick.
+// SOW-009.0 FR-32.
+func TestPipelineGatewayModel_TXRXCountersIncrementByOnePerTick(t *testing.T) {
+	store := makeGatewayStore()
+	model := NewPipelineGatewayModel(store, nil)
+
+	txBefore := readGatewayReg(t, store, gatewayRegSerialTX)
+	rxBefore := readGatewayReg(t, store, gatewayRegSerialRX)
+
+	model.Tick()
+
+	txAfter := readGatewayReg(t, store, gatewayRegSerialTX)
+	rxAfter := readGatewayReg(t, store, gatewayRegSerialRX)
+
+	txDelta := int(txAfter) - int(txBefore)
+	rxDelta := int(rxAfter) - int(rxBefore)
+
+	if txDelta != 1 {
+		t.Errorf("pipeline gateway TX counter delta: got %d, want 1 (one serial device downstream)", txDelta)
+	}
+	if rxDelta != 1 {
+		t.Errorf("pipeline gateway RX counter delta: got %d, want 1 (one serial device downstream)", rxDelta)
+	}
+}
+
+// TestPipelineGatewayModel_Name verifies the pipeline gateway reports the correct model name.
+func TestPipelineGatewayModel_Name(t *testing.T) {
+	store := makeGatewayStore()
+	model := NewPipelineGatewayModel(store, nil)
+	if model.Name() != "pipeline-gateway" {
+		t.Errorf("pipeline gateway name: got %q, want %q", model.Name(), "pipeline-gateway")
+	}
+}
+
+// TestGatewayModel_Name verifies the water/mfg gateway retains its original model name.
+func TestGatewayModel_Name(t *testing.T) {
+	store := makeGatewayStore()
+	model := NewGatewayModel(store, nil)
+	if model.Name() != "mfg-gateway" {
+		t.Errorf("mfg gateway name: got %q, want %q", model.Name(), "mfg-gateway")
+	}
+}

@@ -18,7 +18,10 @@ type ProcessModel interface {
 // noisyUnits lists unit strings for which addNoise applies random fluctuation.
 // All other unit types (enum, bitmask, counters, accumulators) are excluded per FR-4.
 // [OT-REVIEW] Noise MUST NOT be applied to enum, bitmask, count, msgs, hours, or units registers.
+// [OT-REVIEW] MCF (volume accumulator) excluded -- volume is counter-like; noise is applied
+// indirectly via AGA-3 input variation (DP, pressure, temperature). NFR-4.
 var noisyUnits = map[string]bool{
+	// Water treatment / manufacturing units (SOW-003.0)
 	"l/s":    true,
 	"%":      true,
 	"ph":     true,
@@ -34,6 +37,15 @@ var noisyUnits = map[string]bool{
 	"ml/min": true,
 	"mg/l":   true,
 	"kpa":    true,
+	// Pipeline units (SOW-009.0)
+	"mscfh":    true, // thousand standard cubic feet per hour (flow rate)
+	"psig":     true, // pounds per square inch gauge (pressure)
+	"inh2o":    true, // inches of water column (differential pressure)
+	"rpm":      true, // revolutions per minute (compressor speed)
+	"mils":     true, // thousandths of an inch (vibration amplitude)
+	"btu/scf":  true, // British thermal units per standard cubic foot (heating value)
+	"sg":       true, // specific gravity (dimensionless ratio)
+	"lb/mmscf": true, // pounds per million standard cubic feet (moisture content)
 }
 
 // isNoisyUnit reports whether the register unit type should receive sensor noise.

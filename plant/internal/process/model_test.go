@@ -160,8 +160,12 @@ func TestClamp_ConstrainsToRange(t *testing.T) {
 
 // TestIsNoisyUnit_AnalogUnitsReceiveNoise verifies analog process units are eligible for noise.
 func TestIsNoisyUnit_AnalogUnitsReceiveNoise(t *testing.T) {
-	noisyOnes := []string{"L/s", "%", "pH", "NTU", "degC", "degF", "GPM", "PSI",
+	// Water treatment / manufacturing units (SOW-003.0)
+	waterMfgUnits := []string{"L/s", "%", "pH", "NTU", "degC", "degF", "GPM", "PSI",
 		"ft/min", "A", "s", "mW/cm2", "mL/min", "mg/L", "kPa"}
+	// Pipeline units (SOW-009.0, NFR-4)
+	pipelineUnits := []string{"MSCFH", "PSIG", "inH2O", "RPM", "mils", "BTU/SCF", "SG", "lb/MMSCF"}
+	noisyOnes := append(waterMfgUnits, pipelineUnits...)
 	for _, u := range noisyOnes {
 		if !isNoisyUnit(u) {
 			t.Errorf("unit %q should be noisy but isNoisyUnit returned false", u)

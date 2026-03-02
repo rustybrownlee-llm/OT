@@ -186,6 +186,84 @@ register_map_variants:
         writable: false
     coils: []  # Gateway has no coils (max_coils: 0)
 
+  ww-serial-gateway:
+    # SIMULATED: Real NPort 5150 does not expose Modbus registers.
+    # This variant models gateway status for the brownfield wastewater serial bridge,
+    # installed in 2008 to enable remote monitoring from city hall without replacing
+    # the 1997 DH-485 serial infrastructure.
+    # ARCHITECTURE NOTE: NPort bridges Modbus RTU (RS-485 2-wire) to Modbus TCP.
+    # The downstream RS-485 bus connects to ProSoft MVI46-MCM modules in SLC-500 chassis.
+    # The SLC-500s' native DH-485 is not on this wire -- ProSoft translates between
+    # SLC data files and Modbus registers internally. The NPort sees only Modbus RTU
+    # on its RS-485 port; it is unaware of DH-485 topology inside the SLC-500 chassis.
+    # serial_mode: RS-485-2wire (enum value 2) -- required for half-duplex multidrop bus.
+    # All registers are read-only -- a gateway's status is observed, not commanded via Modbus.
+    holding:
+      - address: 0
+        name: "serial_port_status"
+        description: "Serial port operational state (bridges ProSoft MVI46-MCM RS-485 ports on SLC-500 chassis to ww-flat Ethernet)"
+        unit: "enum"            # 0=offline, 1=online, 2=error
+        scale_min: 0
+        scale_max: 2
+        writable: false
+      - address: 1
+        name: "serial_baud_rate"
+        description: "Serial port baud rate (coded enum, not raw bps)"
+        unit: "enum"            # 0=1200, 1=2400, 2=4800, 3=9600, 4=19200, 5=38400, 6=57600, 7=115200
+        scale_min: 0
+        scale_max: 7
+        writable: false
+      - address: 2
+        name: "serial_data_format"
+        description: "Serial data format (coded enum)"
+        unit: "enum"            # 0=8N1, 1=8E1, 2=8O1, 3=7E1
+        scale_min: 0
+        scale_max: 3
+        writable: false
+      - address: 3
+        name: "serial_mode"
+        description: "Serial interface electrical mode (RS-485-2wire for half-duplex multidrop bus to ProSoft MVI46-MCM modules)"
+        unit: "enum"            # 0=RS-232, 1=RS-422, 2=RS-485-2wire, 3=RS-485-4wire
+        scale_min: 0
+        scale_max: 3
+        writable: false
+      - address: 4
+        name: "active_tcp_connections"
+        description: "Current TCP client connections from ww-flat clients polling SLC-500 data via gateway (max 4, serial access is serialized)"
+        unit: "count"
+        scale_min: 0
+        scale_max: 4
+        writable: false
+      - address: 5
+        name: "serial_tx_count"
+        description: "Messages forwarded from TCP to ProSoft MVI46-MCM RS-485 bus"
+        unit: "msgs"
+        scale_min: 0
+        scale_max: 65535
+        writable: false
+      - address: 6
+        name: "serial_rx_count"
+        description: "Messages received from ProSoft MVI46-MCM RS-485 bus"
+        unit: "msgs"
+        scale_min: 0
+        scale_max: 65535
+        writable: false
+      - address: 7
+        name: "serial_error_count"
+        description: "Serial parity, framing, and overrun errors (elevated count may indicate degraded RS-485 wiring or mismatched baud rates with ProSoft modules)"
+        unit: "count"
+        scale_min: 0
+        scale_max: 65535
+        writable: false
+      - address: 8
+        name: "uptime_hours"
+        description: "Device uptime since last power cycle (installed 2008; long uptime typical for always-on gateway devices)"
+        unit: "hours"
+        scale_min: 0
+        scale_max: 65535
+        writable: false
+    coils: []  # Gateway has no coils (max_coils: 0)
+
 diagnostics:
   web_server: true
   web_port: 80

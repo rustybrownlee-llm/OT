@@ -109,6 +109,27 @@ networks:
       ot.environment: "pipeline-monitoring"
       ot.description: "Pipeline station LAN - flat Ethernet, unmanaged switch, single subnet"
 
+  # --------------------------------------------------------------------------
+  # Brownfield wastewater treatment plant -- hybrid flat network (partial Purdue)
+  # Level 1 flat segment: 192.168.10.0/24, original 1997 unmanaged switch.
+  # Level 3 (VLAN 30, 10.30.30.0/24) is NOT modeled as a Docker network because no
+  # simulated devices are placed on it (SCADA server is out of scope per TD-042).
+  # ww-serial-bus (DH-485) is NOT a Docker network (consistent with mfg-serial-bus, TD-021).
+  # ww-wan (cellular) is NOT a Docker network (cellular WAN is simulated in process model only, TD-043).
+  # --------------------------------------------------------------------------
+
+  ot-ww-flat:
+    name: ot-ww-flat
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.10.0/24
+          gateway: 192.168.10.1
+    labels:
+      ot.environment: "brownfield-wastewater"
+      ot.purdue-level: "legacy-flat"
+      ot.description: "Wastewater flat network - 1997 unmanaged switch, no VLANs, internet-exposed via Cradlepoint"
+
   # Pipeline monitoring station -- WAN backhaul to remote SCADA master
   # TD-022: No latency simulation on this Docker bridge. Real satellite/cellular WAN
   # links have 500-700ms RTT; Docker bridge delivers sub-1ms. See ot.latency-note below.
@@ -249,13 +270,60 @@ services:
       ot.description: "Simulated pipeline compressor station: CompactLogix SCADA gateway, ROC800 RTUs, Moxa serial gateway"
 
   # --------------------------------------------------------------------------
+  # plant-wastewater: brownfield wastewater environment (profile: wastewater)
+  # Hybrid facility with three eras of technology sharing one unmanaged flat switch.
+  # Modbus TCP: 5062 (CompactLogix aeration), 5063 (Moxa gateway + SLC-500 unit IDs 1,2),
+  #             5064 (Cradlepoint cellular modem).
+  #
+  # TD-042: ww-level3 (10.30.30.0/24) is not created as a Docker network -- no simulated
+  # devices are placed on it. Topology visualization (SOW-019.0) renders it from YAML metadata.
+  # TD-043: ww-wan is not a Docker network. Cellular WAN behavior is simulated in the process
+  # model only. No real network isolation between "cellular" and "flat" segments.
+  # --------------------------------------------------------------------------
+  plant-wastewater:
+    profiles: ["wastewater"]
+    build:
+      context: .
+      dockerfile: plant/Dockerfile
+    container_name: ot-plant-wastewater
+    restart: unless-stopped
+    command: ["--environment", "/design/environments/brownfield-wastewater", "--log-level", "info"]
+    networks:
+      ot-ww-flat:
+        ipv4_address: 192.168.10.10
+    ports:
+      # Modbus TCP - CompactLogix L33ER (aeration blower control, 2013 modernization)
+      - "5062:5062"
+      # Modbus TCP - Moxa NPort 5150 gateway (bridges to SLC-500 PLCs at unit IDs 1 and 2)
+      # TD-021 class: Serial devices (ww-plc-01, ww-plc-02) are accessed via unit ID routing.
+      - "5063:5063"
+      # Modbus TCP - Cradlepoint IBR600 cellular modem (vendor remote access, 2022)
+      - "5064:5064"
+    environment:
+      - OTS_LOG_LEVEL=info
+      # OTS_HEALTH_PORTS overrides the hardcoded default in the plant binary.
+      - OTS_HEALTH_PORTS=5062,5063,5064
+    healthcheck:
+      test: ["CMD", "/plant", "--health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ./design:/design:ro
+    labels:
+      ot.component: "plant-simulator"
+      ot.environment: "brownfield-wastewater"
+      ot.description: "Brownfield wastewater treatment plant: hybrid flat/partial-Purdue, 1997-2022 era mix"
+
+  # --------------------------------------------------------------------------
   # monitor: security monitoring service (profiles: water, pipeline)
   # Observes both plant environments externally over the network -- no plant imports.
   # Attached to both wt-level3 and ps-station-lan to monitor both environments.
   # TD-020 resolved: monitor now covers both water/mfg and pipeline environments.
   # --------------------------------------------------------------------------
   monitor:
-    profiles: ["water", "pipeline"]
+    profiles: ["water", "pipeline", "wastewater"]
     build:
       context: ./monitoring
       dockerfile: Dockerfile
@@ -268,6 +336,10 @@ services:
       # Pipeline station LAN -- pipeline environment visibility
       ps-station-lan:
         ipv4_address: 10.20.1.20
+      # Wastewater flat network -- wastewater environment visibility
+      # Monitor sits on ww-flat with a static IP to poll all wastewater Modbus endpoints.
+      ot-ww-flat:
+        ipv4_address: 192.168.10.50
     ports:
       # Security analyst dashboard
       - "8090:8090"
@@ -278,6 +350,9 @@ services:
         condition: service_healthy
         required: false
       plant-pipeline:
+        condition: service_healthy
+        required: false
+      plant-wastewater:
         condition: service_healthy
         required: false
     volumes:

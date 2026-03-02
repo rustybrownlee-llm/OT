@@ -124,6 +124,7 @@ type EnvironmentDef struct {
 	Env           EnvironmentMeta  `yaml:"environment"`
 	Networks      []NetworkRef     `yaml:"networks"`
 	Placements    []Placement      `yaml:"placements"`
+	Boundaries    []BoundaryDef    `yaml:"boundaries"` // SOW-016.0 boundary states
 }
 
 // EnvironmentMeta holds the identity fields from an environment.
@@ -131,6 +132,8 @@ type EnvironmentMeta struct {
 	ID          string `yaml:"id"`
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
+	Archetype   string `yaml:"archetype"`  // "modern-segmented", "legacy-flat", "hybrid"
+	EraSpan     string `yaml:"era_span"`   // e.g. "1997-2022" or "2015"
 }
 
 // NetworkRef is a reference to a network atom in an environment.
@@ -140,15 +143,39 @@ type NetworkRef struct {
 
 // Placement wires a device atom onto a network with specific addressing.
 type Placement struct {
-	ID                 string `yaml:"id"`
-	Device             string `yaml:"device"`
-	Network            string `yaml:"network"`
-	IP                 string `yaml:"ip"`
-	ModbusPort         int    `yaml:"modbus_port"`
-	SerialAddress      int    `yaml:"serial_address"`
-	Gateway            string `yaml:"gateway"`
-	Role               string `yaml:"role"`
-	RegisterMapVariant string `yaml:"register_map_variant"`
+	ID                 string              `yaml:"id"`
+	Device             string              `yaml:"device"`
+	Network            string              `yaml:"network"`
+	IP                 string              `yaml:"ip"`
+	ModbusPort         int                 `yaml:"modbus_port"`
+	SerialAddress      int                 `yaml:"serial_address"`
+	Gateway            string              `yaml:"gateway"`
+	Role               string              `yaml:"role"`
+	RegisterMapVariant string              `yaml:"register_map_variant"`
+	Installed          *int                `yaml:"installed"`           // SOW-016.0 era marker
+	AdditionalNetworks []AdditionalNetwork `yaml:"additional_networks"` // secondary network interfaces
+	Bridges            []BridgeDef         `yaml:"bridges"`             // gateway bridge definitions
+}
+
+// AdditionalNetwork records a secondary network interface on a placement.
+type AdditionalNetwork struct {
+	Network string `yaml:"network"`
+	IP      string `yaml:"ip"`
+}
+
+// BridgeDef records one bridge link on a gateway placement.
+type BridgeDef struct {
+	FromNetwork string `yaml:"from_network"`
+	ToNetwork   string `yaml:"to_network"`
+}
+
+// BoundaryDef describes the segmentation state between two network tiers.
+type BoundaryDef struct {
+	Between        []string `yaml:"between"`
+	State          string   `yaml:"state"`          // "enforced", "intended", "absent"
+	Infrastructure string   `yaml:"infrastructure"` // e.g. "managed-switch"
+	Installed      *int     `yaml:"installed"`
+	Notes          string   `yaml:"notes"`
 }
 
 // emptyLibrary returns a DesignLibrary with empty but non-nil maps.
@@ -353,19 +380,80 @@ func (lib *DesignLibrary) IsEmpty() bool {
 	return len(lib.Devices) == 0 && len(lib.Networks) == 0 && len(lib.Environments) == 0
 }
 
-// purdueLevel derives a human-readable Purdue level label from a network ID.
-// The label is derived from the network type and name convention in this project.
-func purdueLevel(netID string) string {
-	levels := map[string]string{
-		"wt-level1": "Level 1 - Basic Control",
-		"wt-level2": "Level 2 - Supervisory Control",
-		"wt-level3": "Level 3 - Site Operations",
+// inferPurdueLevel derives a Purdue level label for a network using an archetype-aware
+// heuristic based on network ID naming conventions and archetype context.
+//
+// PROTOTYPE-DEBT: [td-045] Level assigned from network naming convention, not a schema
+// field. TD-035 remains open for a purdue_level field on network atoms.
+//
+// Inference rules are evaluated in order:
+//  1. Flat pre-filter: legacy-flat or hybrid archetypes with flat/unmanaged ethernet
+//     networks yield "Flat (Unclassified)" -- no Purdue level.
+//  2. Explicit level keywords: level1, level2, level3 in network ID.
+//  3. Serial backbone: "serial" in network ID.
+//  4. WAN/External: "wan" in network ID.
+//  5. Point-to-point: short subnet or cross-plant link.
+//  6. Default: "Unclassified".
+//
+// Note: This heuristic is a simulator convention for controlled naming, not a standard.
+// Real environments require architectural analysis to assign Purdue levels.
+func inferPurdueLevel(netID, archetype string, net *NetworkAtom) networkLevelInfo {
+	isLegacyContext := archetype == "legacy-flat" || archetype == "hybrid"
+
+	// Rule 1: Flat pre-filter for legacy and hybrid environments.
+	// Flat networks in these archetypes have no Purdue level -- they coexist on one wire.
+	if isLegacyContext && net != nil {
+		if strings.Contains(netID, "flat") ||
+			(net.Properties.ManagedSwitch == false && net.Properties.VLAN == 0 && net.Network.Type == "ethernet") {
+			return networkLevelInfo{Label: "Flat (Unclassified)", PLevel: -1, IsFlat: true}
+		}
 	}
-	label, ok := levels[netID]
-	if !ok {
+
+	// Rule 2-4: Explicit level keywords take precedence over default.
+	switch {
+	case strings.Contains(netID, "level1"):
+		return networkLevelInfo{Label: "Level 1 - Basic Control", PLevel: 1}
+	case strings.Contains(netID, "level2"):
+		return networkLevelInfo{Label: "Level 2 - Supervisory Control", PLevel: 2}
+	case strings.Contains(netID, "level3"):
+		return networkLevelInfo{Label: "Level 3 - Site Operations", PLevel: 3}
+	case strings.Contains(netID, "serial"):
+		// Serial buses are physical layer, not a Purdue level. Attach to gateway device's level.
+		return networkLevelInfo{Label: "Serial Backbone", PLevel: -2, IsSerial: true}
+	case strings.Contains(netID, "wan"):
+		// WAN is external connectivity, not a DMZ (Level 3.5). Render at top.
+		return networkLevelInfo{Label: "External/WAN", PLevel: 99, IsWAN: true}
+	}
+
+	// Rule 5: Point-to-point cross-plant links.
+	if strings.Contains(netID, "cross") {
+		return networkLevelInfo{Label: "Link", PLevel: -3, IsLink: true}
+	}
+
+	// Rule 6: Default unclassified.
+	return networkLevelInfo{Label: "Unclassified", PLevel: 0, IsUnclassified: true}
+}
+
+// networkLevelInfo holds the result of Purdue level inference for one network.
+type networkLevelInfo struct {
+	Label          string
+	PLevel         int  // -3=link, -2=serial, -1=flat, 0=unclassified, 1-3=Purdue level, 99=WAN
+	IsFlat         bool
+	IsSerial       bool
+	IsWAN          bool
+	IsLink         bool
+	IsUnclassified bool
+}
+
+// purdueLevel is retained for the design network detail page, which shows the level
+// for a single network without archetype context. It uses the inference heuristic
+// with an empty archetype (no flat pre-filter applied).
+func purdueLevel(netID string) string {
+	info := inferPurdueLevel(netID, "", nil)
+	if info.IsUnclassified {
 		return ""
 	}
-	return label
+	return info.Label
 }
 
 // ScaleValue converts a raw uint16 Modbus value to an engineering unit value

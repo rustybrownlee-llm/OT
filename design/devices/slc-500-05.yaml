@@ -114,6 +114,185 @@ register_map_variants:
         description: "Product jam sensor triggered (read-only status)"
         writable: false
 
+  ww-influent:
+    # Influent screening and primary treatment control -- 1997 SLC-500 installation.
+    # Controls bar screen, grit removal, and primary clarification.
+    # Addresses are one-based per ProSoft MVI46-MCM Modbus module mapping.
+    # ProSoft maps SLC data files (N7:0, N7:1, ...) to Modbus addresses 1, 2, ...
+    # All holding registers stored as 16-bit scaled integers (N7: integer file convention).
+    # Scale_min/scale_max define the engineering unit interpretation of 0-32767 raw integer range.
+    # IEEE 754 floats are NOT used -- the ProSoft MVI46-MCM maps N7: (integer) files, not F8: (float).
+    # ATTACK SURFACES: influent_flow_total (writable -- permit compliance attack via false daily total),
+    #                  sludge_pump_cycle_time (writable -- stop sludge withdrawal to cause slow-burn
+    #                  primary clarifier carryover; recovery takes days to remediate).
+    holding:
+      - address: 1
+        name: "influent_flow_rate"
+        description: "Raw influent flow rate at plant headworks (typical small municipal WWTP: 0-5000 GPM for 2-7 MGD capacity)"
+        unit: "GPM"
+        scale_min: 0
+        scale_max: 5000
+        writable: false
+      - address: 2
+        name: "influent_flow_total"
+        description: "Daily influent flow totalizer (writable: operators reset at midnight for NPDES daily reporting -- ATTACK SURFACE: spoofing this value falsifies permit compliance records)"
+        unit: "gal x1000"
+        scale_min: 0
+        scale_max: 99999
+        writable: true
+      - address: 3
+        name: "bar_screen_differential"
+        description: "Bar screen differential pressure (triggers automatic rake above ~6 in WC; 12 in WC = plugged screen alarm requiring manual clearance)"
+        unit: "in WC"
+        scale_min: 0
+        scale_max: 12
+        writable: false
+      - address: 4
+        name: "grit_chamber_level"
+        description: "Grit chamber level (triggers grit pump above 80%; grit accumulation rate depends on influent quality)"
+        unit: "%"
+        scale_min: 0
+        scale_max: 100
+        writable: false
+      - address: 5
+        name: "primary_clarifier_level"
+        description: "Primary clarifier level relative to weir elevation (normal variation <1 ft; rising level indicates reduced sludge withdrawal or high influent solids)"
+        unit: "ft"
+        scale_min: 0
+        scale_max: 5
+        writable: false
+      - address: 6
+        name: "sludge_blanket_depth"
+        description: "Primary sludge blanket depth (operator monitors for rising blanket; excessive depth causes solids carryover to secondary treatment)"
+        unit: "ft"
+        scale_min: 0
+        scale_max: 8
+        writable: false
+      - address: 7
+        name: "sludge_pump_cycle_time"
+        description: "Primary sludge pump cycle time setpoint (writable: 0=pump stopped, 120=maximum run time -- ATTACK SURFACE: writing 0 stops sludge withdrawal; clarifier solids carryover begins within hours; recovery takes days)"
+        unit: "min"
+        scale_min: 0
+        scale_max: 120
+        writable: true
+      - address: 8
+        name: "influent_ph"
+        description: "Influent pH from inline transmitter (full scale 0-14; normal influent 6.5-7.5; below 5.5 or above 9.5 indicates industrial discharge event)"
+        unit: "pH"
+        scale_min: 0
+        scale_max: 14
+        writable: false
+      - address: 9
+        name: "influent_temperature"
+        description: "Influent wastewater temperature (40-90 degF; wastewater never reaches 32 degF due to building plumbing thermal buffering; below 55 degF impairs downstream biological treatment)"
+        unit: "degF"
+        scale_min: 40
+        scale_max: 90
+        writable: false
+    coils:
+      - address: 1
+        name: "bar_screen_motor"
+        description: "Bar screen rake motor run command (0=stop, 1=run -- auto-commanded by PLC when differential pressure exceeds threshold)"
+        writable: true
+      - address: 2
+        name: "grit_pump"
+        description: "Grit chamber pump run command (0=stop, 1=run -- auto-commanded by PLC when chamber level exceeds 80%)"
+        writable: true
+      - address: 3
+        name: "primary_sludge_pump"
+        description: "Primary sludge withdrawal pump run command (0=stop, 1=run -- controlled by sludge_pump_cycle_time setpoint)"
+        writable: true
+      - address: 4
+        name: "influent_gate"
+        description: "Influent gate position (0=closed, 1=open -- closing diverts flow to bypass channel during maintenance)"
+        writable: true
+
+  ww-effluent:
+    # Secondary clarification and effluent discharge control -- 1997 SLC-500 installation.
+    # Controls return activated sludge (RAS), waste activated sludge (WAS), UV disinfection,
+    # and final effluent discharge. This PLC enforces the permit interlock before discharge.
+    # Addresses are one-based per ProSoft MVI46-MCM Modbus module mapping.
+    # All holding registers stored as 16-bit scaled integers (N7: integer file convention).
+    # ATTACK SURFACES: was_pump coil (uncontrolled wasting destroys activated sludge inventory
+    #                  over 24 hours; recovery takes days to weeks; regulatory and environmental
+    #                  consequences with significant NPDES fines and public health risk),
+    #                  effluent_discharge_valve coil (requires multi-step attack: must also
+    #                  spoof permit_interlock_status or disable UV system -- realistic complexity).
+    holding:
+      - address: 1
+        name: "effluent_flow_rate"
+        description: "Final effluent flow rate at discharge point (matches influent capacity for mass balance)"
+        unit: "GPM"
+        scale_min: 0
+        scale_max: 5000
+        writable: false
+      - address: 2
+        name: "secondary_clarifier_level"
+        description: "Secondary clarifier level relative to weir elevation (normal variation <1 ft; rising level indicates poor solids settling or high RAS withdrawal)"
+        unit: "ft"
+        scale_min: 0
+        scale_max: 5
+        writable: false
+      - address: 3
+        name: "ras_flow"
+        description: "Return activated sludge (RAS) flow rate (typically 25-75% of influent flow to maintain sludge inventory in aeration basin)"
+        unit: "GPM"
+        scale_min: 0
+        scale_max: 2500
+        writable: false
+      - address: 4
+        name: "was_flow"
+        description: "Waste activated sludge (WAS) flow rate (typically 2-30 GPM for a 5 MGD plant; 100 GPM maximum -- excess wasting destroys activated sludge inventory)"
+        unit: "GPM"
+        scale_min: 0
+        scale_max: 100
+        writable: false
+      - address: 5
+        name: "effluent_tss"
+        description: "Effluent total suspended solids (NPDES permit typically requires <30 mg/L; values above 30 trigger permit exceedance reporting)"
+        unit: "mg/L"
+        scale_min: 0
+        scale_max: 50
+        writable: false
+      - address: 6
+        name: "effluent_ammonia_nitrogen"
+        description: "Effluent ammonia nitrogen from online ion-selective electrode analyzer (0-30 mg/L; replaces BOD -- BOD is a 5-day lab test, NOT a real-time PLC register)"
+        unit: "mg/L"
+        scale_min: 0
+        scale_max: 30
+        writable: false
+      - address: 7
+        name: "uv_transmittance"
+        description: "Effluent UV transmittance at 254nm (effluent clarity indicator; below 55% indicates poor treatment quality; low transmittance reduces UV disinfection effectiveness)"
+        unit: "%"
+        scale_min: 0
+        scale_max: 100
+        writable: false
+      - address: 8
+        name: "permit_interlock_status"
+        description: "Discharge permit interlock bitmask (read-only: bit0=UV_system_active, bit1=flow_within_permit, bit2=NPDES_permit_active -- all bits must be set before discharge valve can open; ATTACK: single valve coil flip is insufficient, must spoof this register or disable UV system)"
+        unit: "bitmask"
+        scale_min: 0
+        scale_max: 7
+        writable: false
+    coils:
+      - address: 1
+        name: "ras_pump"
+        description: "Return activated sludge pump run command (0=stop, 1=run -- maintains biological process in aeration basin)"
+        writable: true
+      - address: 2
+        name: "was_pump"
+        description: "Waste activated sludge pump run command (0=stop, 1=run -- ATTACK SURFACE: uncontrolled WAS pumping at 50-100 GPM over 24 hours destroys activated sludge inventory; recovery takes days to weeks)"
+        writable: true
+      - address: 3
+        name: "uv_disinfection_enable"
+        description: "UV disinfection system enable (0=off, 1=on -- disabling UV is step one of the discharge valve attack: permit interlock bit0 clears, allowing subsequent valve manipulation)"
+        writable: true
+      - address: 4
+        name: "effluent_discharge_valve"
+        description: "Effluent discharge valve to outfall (0=closed, 1=open -- permit interlock prevents opening unless permit_interlock_status bits all set)"
+        writable: true
+
 diagnostics:
   web_server: false
   web_port: 0

@@ -9,6 +9,8 @@ environment:
   id: "greenfield-water-mfg"
   name: "Greenfield Water and Manufacturing Facility"
   description: "Dual-network facility with modern water treatment (Purdue model) and legacy manufacturing floor (flat network, circa 1993)"
+  archetype: "hybrid"
+  era_span: "1993-2024"
 
 # All networks used by placements in this environment must be listed here.
 # Serial buses are networks too -- they just have no subnet property.

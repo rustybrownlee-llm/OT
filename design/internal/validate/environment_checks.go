@@ -3,6 +3,7 @@ package validate
 import (
 	"fmt"
 	"net"
+	"time"
 )
 
 // checkSinglePlacement applies ENV-005 through ENV-019 to one placement entry.
@@ -79,6 +80,29 @@ func checkSinglePlacement(
 
 	// ENV-014, ENV-015: additional_networks.
 	checkAdditionalNetworks(envFile, i, p, envNetworkSet, networkDocs, networkIPs, r)
+
+	// ENV-022: installed year must be within valid range if present.
+	if p.Installed != nil {
+		checkInstalledYear(envFile, fmt.Sprintf("placements[%d].installed", i), *p.Installed, r, "ENV-022")
+	}
+}
+
+// checkInstalledYear validates an installation year is within [1960, time.Now().Year()+2].
+// The lower bound 1960 accommodates early PLC history (Modicon 084 shipped 1968).
+// The upper bound +2 accommodates staged equipment ordered but not yet operational.
+func checkInstalledYear(envFile, field string, year int, r *ValidationResult, ruleID string) {
+	maxYear := time.Now().Year() + 2
+	if year < 1960 || year > maxYear {
+		r.Add(ValidationError{
+			File:  envFile,
+			Field: field,
+			Message: fmt.Sprintf(
+				"year %d is outside valid range 1960-%d (PLCs first deployed ~1968; +2 years accommodates staged equipment)",
+				year, maxYear,
+			),
+			Severity: SeverityError, RuleID: ruleID,
+		})
+	}
 }
 
 // checkSerialPlacement applies ENV-013, ENV-017, ENV-019 for gateway-accessed devices.

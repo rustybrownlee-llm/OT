@@ -189,6 +189,124 @@ register_map_variants:
         description: "Compressor has tripped on safety interlock (read-only -- high vibration, high bearing temp, low lube oil, or ESD. Requires local reset after fault clearance.)"
         writable: false
 
+  ww-aeration:
+    # Aeration blower control for dissolved oxygen management -- 2013 modernization.
+    # The CompactLogix L33ER replaced the 1997 SLC-500s for this system because the
+    # original SLC-500s lacked the I/O density and Ethernet connectivity required for
+    # variable-frequency drive (VFD) communication and expanded analog I/O.
+    # Zero-based addressing (CompactLogix convention -- contrast with SLC-500 one-based).
+    # Registers use 16-bit scaled integers: 0=scale_min, 32767=scale_max.
+    # ATTACK SURFACES: do_setpoint (PRIMARY -- writing 0.0-0.5 mg/L creates anoxic conditions;
+    #                  PLC's PID loop reduces blower speed to match spoofed setpoint; biomass
+    #                  crashes; recovery takes days to weeks),
+    #                  blower_speed_setpoint (SECONDARY -- writing 0% with DO control disabled
+    #                  stalls blowers and creates anoxic conditions directly).
+    # VFD TEACHING POINT: PLCs write a percentage command to the VFD; the VFD executes it.
+    # Blower speed setpoint (%) and feedback (RPM) are separate registers -- setpoint is what
+    # the PLC commands, feedback is what the VFD reports as actual shaft speed.
+    holding:
+      - address: 0
+        name: "blower_speed_setpoint"
+        description: "Blower VFD speed setpoint (writable % command from PLC to VFD -- ATTACK SURFACE: writing 0% with DO control disabled stalls blowers and creates anoxic conditions)"
+        unit: "%"
+        scale_min: 0
+        scale_max: 100
+        writable: true
+      - address: 1
+        name: "blower_speed_feedback"
+        description: "Blower VFD speed feedback (read-only actual shaft speed reported from VFD -- distinct from setpoint; teaches VFD setpoint/feedback architecture)"
+        unit: "RPM"
+        scale_min: 0
+        scale_max: 3600
+        writable: false
+      - address: 2
+        name: "do_setpoint"
+        description: "Dissolved oxygen setpoint for PID control (writable mg/L -- PRIMARY ATTACK SURFACE: writing 0.0-0.5 creates anoxic conditions; PLC reduces blower speed to match; DO crashes below 1.0 mg/L = dead zone for activated sludge)"
+        unit: "mg/L"
+        scale_min: 0
+        scale_max: 8
+        writable: true
+      - address: 3
+        name: "dissolved_oxygen"
+        description: "Dissolved oxygen measurement from inline probe (read-only; control target typically 2.0 mg/L; below 1.0 = anoxic; above 4.0 = energy waste; blowers are 50-70% of plant electricity cost)"
+        unit: "mg/L"
+        scale_min: 0
+        scale_max: 12
+        writable: false
+      - address: 4
+        name: "air_flow_rate"
+        description: "Aeration air flow rate from blower to basin diffusers (standard cubic feet per minute)"
+        unit: "SCFM"
+        scale_min: 0
+        scale_max: 5000
+        writable: false
+      - address: 5
+        name: "blower_discharge_pressure"
+        description: "Blower discharge pressure at outlet header (elevated pressure indicates clogged diffusers or closed valves)"
+        unit: "PSI"
+        scale_min: 0
+        scale_max: 15
+        writable: false
+      - address: 6
+        name: "blower_inlet_temperature"
+        description: "Blower inlet air temperature (ambient to heated; high inlet temperature reduces blower efficiency and increases motor load)"
+        unit: "degF"
+        scale_min: 30
+        scale_max: 120
+        writable: false
+      - address: 7
+        name: "blower_motor_current"
+        description: "Blower motor current draw (load indicator; high current with low airflow indicates mechanical resistance or clogged diffusers)"
+        unit: "A"
+        scale_min: 0
+        scale_max: 200
+        writable: false
+      - address: 8
+        name: "aeration_basin_level"
+        description: "Aeration basin water surface elevation (typical municipal SWD 10-15 ft; level variation indicates imbalanced flow distribution between basins)"
+        unit: "ft"
+        scale_min: 0
+        scale_max: 15
+        writable: false
+      - address: 9
+        name: "mlss"
+        description: "Mixed liquor suspended solids concentration (target 2000-4000 mg/L for activated sludge; below 1000 = under-seeded; above 6000 = risk of clarifier overload)"
+        unit: "mg/L"
+        scale_min: 0
+        scale_max: 10000
+        writable: false
+      - address: 10
+        name: "sour"
+        description: "Specific oxygen uptake rate (PLC-calculated from DO uptake rate and MLSS measurement -- NOT a raw sensor; near-zero indicates dead or severely inhibited sludge; cannot be spoofed by replaying a Modbus write without first spoofing source inputs)"
+        unit: "mg O2/g MLSS/hr"
+        scale_min: 0
+        scale_max: 30
+        writable: false
+      - address: 11
+        name: "blower_run_hours"
+        description: "Blower cumulative run hours (read-only predictive maintenance counter; this is the register the blower vendor reads via the Cradlepoint cellular link for predictive maintenance scheduling)"
+        unit: "hours"
+        scale_min: 0
+        scale_max: 999999
+        writable: false
+    coils:
+      - address: 0
+        name: "blower_1_run"
+        description: "Blower 1 VFD run command (0=stop, 1=run -- at least one blower must run when DO control is enabled)"
+        writable: true
+      - address: 1
+        name: "blower_2_run"
+        description: "Blower 2 VFD run command (0=stop, 1=run -- lead/lag configuration; both run at high load)"
+        writable: true
+      - address: 2
+        name: "aeration_valve_auto"
+        description: "Aeration basin air distribution valve mode (0=manual, 1=auto -- auto mode allows PLC to balance airflow between basin zones)"
+        writable: true
+      - address: 3
+        name: "do_control_enable"
+        description: "Dissolved oxygen PID control enable (0=manual blower speed, 1=automatic DO-based PID control -- disabling this forces blower_speed_setpoint to manual operation)"
+        writable: true
+
 diagnostics:
   web_server: true
   web_port: 80

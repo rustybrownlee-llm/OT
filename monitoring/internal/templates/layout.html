@@ -29,6 +29,45 @@
             letter-spacing: 0.08em;
             padding: 0.5rem 1rem 0.25rem;
         }
+
+        /* Topology: boundary states */
+        /* boundary-absent: red dashed -- the dangerous condition, must look alarming */
+        .boundary-enforced { border-top: 3px solid #28a745; }
+        .boundary-intended { border-top: 3px dashed #ffc107; }
+        .boundary-absent   { border-top: 5px dashed #dc3545; }
+
+        /* Topology: era marker badges -- neutral blue hue scale (light to dark).
+           Communicates age without implying risk ranking. A 1990s SLC-500 on an
+           isolated serial bus may be safer than a 2020s device with internet exposure.
+           ADR-010 D3: "A 1998 SLC-500 that has run reliably for 28 years is not a
+           failure -- it is a constraint." */
+        .era-badge  { font-size: 0.75rem; padding: 2px 6px; border-radius: 3px; display: inline-block; }
+        .era-1990s  { background-color: #b3d9ff; color: #0d3b66; }
+        .era-2000s  { background-color: #66b3ff; color: #0d3b66; }
+        .era-2010s  { background-color: #3399ff; color: white; }
+        .era-2020s  { background-color: #0066cc; color: white; }
+
+        /* Topology: device nodes */
+        .device-node        { border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; background: white; }
+        .device-serial      { border-style: dashed; }
+        .device-focal       { border: 2px solid #0d6efd; }
+
+        /* Topology: network segments */
+        .network-segment    { background-color: #f8f9fa; border-radius: 4px; padding: 8px; }
+        .network-managed    { border-left: 4px solid #28a745; }
+        .network-unmanaged  { border-left: 4px solid #dc3545; }
+
+        /* Topology: level rows */
+        .topology-level     { margin-bottom: 0; padding: 16px; position: relative; }
+        .topology-level-hdr { font-weight: 600; font-size: 0.8rem; text-transform: uppercase;
+                              letter-spacing: 0.06em; color: #6c757d; margin-bottom: 8px; }
+        .topology-flat      { background-color: #fff8f0; border: 1px dashed #fd7e14; border-radius: 6px; }
+        .topology-serial    { background-color: #f8f0ff; border: 1px dotted #6f42c1; border-radius: 6px; }
+        .topology-wan       { background-color: #f0f8ff; border: 1px solid #0d6efd; border-radius: 6px; }
+        .topology-purdue    { background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; }
+
+        /* Topology: bridge indicators */
+        .bridge-label { font-size: 0.7rem; color: #6c757d; }
     </style>
 </head>
 <body>

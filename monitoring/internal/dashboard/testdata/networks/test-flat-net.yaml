@@ -1,0 +1,10 @@
+schema_version: "0.1"
+network:
+  id: "test-flat-net"
+  name: "Test Flat Network"
+  type: "ethernet"
+  description: "Unmanaged flat network for unit tests"
+properties:
+  subnet: "192.168.10.0/24"
+  managed_switch: false
+  span_capable: false

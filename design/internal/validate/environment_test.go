@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -657,3 +658,489 @@ func TestValidateEnvironment_Greenfield(t *testing.T) {
 		t.Errorf("greenfield-water-mfg has validation errors:\n%s", result.String(envDir))
 	}
 }
+
+// --- ENV-020 through ENV-030 tests (ADR-010 archetype schema extensions) ---
+
+func TestValidateEnvironment_ENV020_Archetype(t *testing.T) {
+	tests := []struct {
+		name      string
+		archetype string
+		wantErr   bool
+	}{
+		{name: "valid modern-segmented", archetype: "modern-segmented", wantErr: false},
+		{name: "valid legacy-flat", archetype: "legacy-flat", wantErr: false},
+		{name: "valid hybrid", archetype: "hybrid", wantErr: false},
+		{name: "invalid value", archetype: "flat-network", wantErr: true},
+		{name: "missing (optional)", archetype: "", wantErr: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root, _ := setupValidEnv(t)
+			archetypeLine := ""
+			if tc.archetype != "" {
+				archetypeLine = fmt.Sprintf("  archetype: %q", tc.archetype)
+			}
+			envContent := fmt.Sprintf(`
+schema_version: "0.1"
+environment:
+  id: "test-env"
+  name: "Test"
+  description: "test"
+%s
+networks:
+  - ref: "eth-net"
+placements:
+  - id: "plc-01"
+    device: "test-plc"
+    network: "eth-net"
+    ip: "10.0.0.10"
+    modbus_port: 5020
+    role: "Test PLC"
+    register_map_variant: "default"
+`, archetypeLine)
+			envDir := writeEnvDir(t, root, "test-env", envContent)
+			result := ValidateEnvironment(envDir)
+			gotErr := containsRule(result, "ENV-020")
+			if gotErr != tc.wantErr {
+				t.Errorf("archetype=%q wantErr=%v gotErr=%v\n%s",
+					tc.archetype, tc.wantErr, gotErr, result.String(envDir))
+			}
+		})
+	}
+}
+
+func TestValidateEnvironment_ENV021_EraSpanFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		eraSpan  string
+		wantWarn bool
+	}{
+		{name: "valid single year", eraSpan: "2024", wantWarn: false},
+		{name: "valid range", eraSpan: "1997-2022", wantWarn: false},
+		{name: "invalid format", eraSpan: "circa-1990", wantWarn: true},
+		{name: "missing (optional)", eraSpan: "", wantWarn: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root, _ := setupValidEnv(t)
+			eraLine := ""
+			if tc.eraSpan != "" {
+				eraLine = fmt.Sprintf("  era_span: %q", tc.eraSpan)
+			}
+			envContent := fmt.Sprintf(`
+schema_version: "0.1"
+environment:
+  id: "test-env"
+  name: "Test"
+  description: "test"
+%s
+networks:
+  - ref: "eth-net"
+placements:
+  - id: "plc-01"
+    device: "test-plc"
+    network: "eth-net"
+    ip: "10.0.0.10"
+    modbus_port: 5020
+    role: "Test PLC"
+    register_map_variant: "default"
+`, eraLine)
+			envDir := writeEnvDir(t, root, "test-env", envContent)
+			result := ValidateEnvironment(envDir)
+			gotWarn := containsRuleWithSeverity(result, "ENV-021", SeverityWarning)
+			if gotWarn != tc.wantWarn {
+				t.Errorf("era_span=%q wantWarn=%v gotWarn=%v\n%s",
+					tc.eraSpan, tc.wantWarn, gotWarn, result.String(envDir))
+			}
+		})
+	}
+}
+
+func TestValidateEnvironment_ENV021b_EraSpanReversedRange(t *testing.T) {
+	root, _ := setupValidEnv(t)
+	envDir := writeEnvDir(t, root, "test-env", `
+schema_version: "0.1"
+environment:
+  id: "test-env"
+  name: "Test"
+  description: "test"
+  era_span: "2024-1997"
+networks:
+  - ref: "eth-net"
+placements:
+  - id: "plc-01"
+    device: "test-plc"
+    network: "eth-net"
+    ip: "10.0.0.10"
+    modbus_port: 5020
+    role: "Test PLC"
+    register_map_variant: "default"
+`)
+	result := ValidateEnvironment(envDir)
+	if !containsRule(result, "ENV-021b") {
+		t.Errorf("expected ENV-021b for reversed era_span range\n%s", result.String(envDir))
+	}
+}
+
+func TestValidateEnvironment_ENV022_PlacementInstalledYear(t *testing.T) {
+	tests := []struct {
+		name      string
+		installed string // empty means omit field
+		wantErr   bool
+	}{
+		{name: "valid 1968", installed: "1968", wantErr: false},
+		{name: "invalid 1955", installed: "1955", wantErr: true},
+		{name: "missing (optional)", installed: "", wantErr: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root, _ := setupValidEnv(t)
+			installedLine := ""
+			if tc.installed != "" {
+				installedLine = fmt.Sprintf("    installed: %s", tc.installed)
+			}
+			envContent := fmt.Sprintf(`
+schema_version: "0.1"
+environment:
+  id: "test-env"
+networks:
+  - ref: "eth-net"
+placements:
+  - id: "plc-01"
+    device: "test-plc"
+    network: "eth-net"
+    ip: "10.0.0.10"
+    modbus_port: 5020
+    role: "Test PLC"
+    register_map_variant: "default"
+%s
+`, installedLine)
+			envDir := writeEnvDir(t, root, "test-env", envContent)
+			result := ValidateEnvironment(envDir)
+			gotErr := containsRule(result, "ENV-022")
+			if gotErr != tc.wantErr {
+				t.Errorf("installed=%q wantErr=%v gotErr=%v\n%s",
+					tc.installed, tc.wantErr, gotErr, result.String(envDir))
+			}
+		})
+	}
+}
+
+func TestValidateEnvironment_ENV023_BoundaryBetweenCount(t *testing.T) {
+	tests := []struct {
+		name    string
+		between string
+		wantErr bool
+	}{
+		{name: "valid 2 elements", between: `["eth-net", "eth-net"]`, wantErr: false},
+		{name: "1 element", between: `["eth-net"]`, wantErr: true},
+		{name: "3 elements", between: `["eth-net", "eth-net", "eth-net"]`, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root, _ := setupValidEnv(t)
+			envContent := fmt.Sprintf(`
+schema_version: "0.1"
+environment:
+  id: "test-env"
+networks:
+  - ref: "eth-net"
+placements:
+  - id: "plc-01"
+    device: "test-plc"
+    network: "eth-net"
+    ip: "10.0.0.10"
+    modbus_port: 5020
+    role: "Test PLC"
+    register_map_variant: "default"
+boundaries:
+  - between: %s
+    state: "enforced"
+`, tc.between)
+			envDir := writeEnvDir(t, root, "test-env", envContent)
+			result := ValidateEnvironment(envDir)
+			gotErr := containsRule(result, "ENV-023")
+			if gotErr != tc.wantErr {
+				t.Errorf("between=%s wantErr=%v gotErr=%v\n%s",
+					tc.between, tc.wantErr, gotErr, result.String(envDir))
+			}
+		})
+	}
+}
+
+func TestValidateEnvironment_ENV024_BoundaryUnknownNetwork(t *testing.T) {
+	root, _ := setupValidEnv(t)
+	envDir := writeEnvDir(t, root, "test-env", `
+schema_version: "0.1"
+environment:
+  id: "test-env"
+networks:
+  - ref: "eth-net"
+placements:
+  - id: "plc-01"
+    device: "test-plc"
+    network: "eth-net"
+    ip: "10.0.0.10"
+    modbus_port: 5020
+    role: "Test PLC"
+    register_map_variant: "default"
+boundaries:
+  - between: ["eth-net", "nonexistent-net"]
+    state: "enforced"
+`)
+	result := ValidateEnvironment(envDir)
+	if !containsRule(result, "ENV-024") {
+		t.Errorf("expected ENV-024 for boundary referencing unknown network\n%s", result.String(envDir))
+	}
+}
+
+func TestValidateEnvironment_ENV025_BoundaryState(t *testing.T) {
+	tests := []struct {
+		name    string
+		state   string
+		wantErr bool
+	}{
+		{name: "valid enforced", state: "enforced", wantErr: false},
+		{name: "valid intended", state: "intended", wantErr: false},
+		{name: "valid absent", state: "absent", wantErr: false},
+		{name: "invalid unknown", state: "unknown", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root, _ := setupValidEnv(t)
+			envContent := fmt.Sprintf(`
+schema_version: "0.1"
+environment:
+  id: "test-env"
+networks:
+  - ref: "eth-net"
+placements:
+  - id: "plc-01"
+    device: "test-plc"
+    network: "eth-net"
+    ip: "10.0.0.10"
+    modbus_port: 5020
+    role: "Test PLC"
+    register_map_variant: "default"
+boundaries:
+  - between: ["eth-net", "eth-net"]
+    state: %q
+`, tc.state)
+			envDir := writeEnvDir(t, root, "test-env", envContent)
+			result := ValidateEnvironment(envDir)
+			gotErr := containsRule(result, "ENV-025")
+			if gotErr != tc.wantErr {
+				t.Errorf("state=%q wantErr=%v gotErr=%v\n%s",
+					tc.state, tc.wantErr, gotErr, result.String(envDir))
+			}
+		})
+	}
+}
+
+func TestValidateEnvironment_ENV026_HybridWithoutBoundaries(t *testing.T) {
+	root, _ := setupValidEnv(t)
+	envDir := writeEnvDir(t, root, "test-env", `
+schema_version: "0.1"
+environment:
+  id: "test-env"
+  archetype: "hybrid"
+networks:
+  - ref: "eth-net"
+placements:
+  - id: "plc-01"
+    device: "test-plc"
+    network: "eth-net"
+    ip: "10.0.0.10"
+    modbus_port: 5020
+    role: "Test PLC"
+    register_map_variant: "default"
+`)
+	result := ValidateEnvironment(envDir)
+	if !containsRuleWithSeverity(result, "ENV-026", SeverityWarning) {
+		t.Errorf("expected ENV-026 warning for hybrid without boundaries\n%s", result.String(envDir))
+	}
+}
+
+func TestValidateEnvironment_ENV027_ModernSegmentedAbsentBoundary(t *testing.T) {
+	root, _ := setupValidEnv(t)
+	envDir := writeEnvDir(t, root, "test-env", `
+schema_version: "0.1"
+environment:
+  id: "test-env"
+  archetype: "modern-segmented"
+networks:
+  - ref: "eth-net"
+placements:
+  - id: "plc-01"
+    device: "test-plc"
+    network: "eth-net"
+    ip: "10.0.0.10"
+    modbus_port: 5020
+    role: "Test PLC"
+    register_map_variant: "default"
+boundaries:
+  - between: ["eth-net", "eth-net"]
+    state: "absent"
+`)
+	result := ValidateEnvironment(envDir)
+	if !containsRuleWithSeverity(result, "ENV-027", SeverityWarning) {
+		t.Errorf("expected ENV-027 warning for modern-segmented with absent boundary\n%s", result.String(envDir))
+	}
+	// Verify reclassification guidance appears in the warning message.
+	found := false
+	for _, e := range result.Errors {
+		if e.RuleID == "ENV-027" && strings.Contains(e.Message, "reclassif") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected ENV-027 message to contain reclassification guidance\n%s", result.String(envDir))
+	}
+}
+
+func TestValidateEnvironment_ENV028_BoundaryInstalledYear(t *testing.T) {
+	tests := []struct {
+		name      string
+		installed string // empty means omit field
+		wantErr   bool
+	}{
+		{name: "valid 1995", installed: "1995", wantErr: false},
+		{name: "invalid 1950", installed: "1950", wantErr: true},
+		{name: "missing (optional)", installed: "", wantErr: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root, _ := setupValidEnv(t)
+			installedLine := ""
+			if tc.installed != "" {
+				installedLine = fmt.Sprintf("    installed: %s", tc.installed)
+			}
+			envContent := fmt.Sprintf(`
+schema_version: "0.1"
+environment:
+  id: "test-env"
+networks:
+  - ref: "eth-net"
+placements:
+  - id: "plc-01"
+    device: "test-plc"
+    network: "eth-net"
+    ip: "10.0.0.10"
+    modbus_port: 5020
+    role: "Test PLC"
+    register_map_variant: "default"
+boundaries:
+  - between: ["eth-net", "eth-net"]
+    state: "enforced"
+%s
+`, installedLine)
+			envDir := writeEnvDir(t, root, "test-env", envContent)
+			result := ValidateEnvironment(envDir)
+			gotErr := containsRule(result, "ENV-028")
+			if gotErr != tc.wantErr {
+				t.Errorf("installed=%q wantErr=%v gotErr=%v\n%s",
+					tc.installed, tc.wantErr, gotErr, result.String(envDir))
+			}
+		})
+	}
+}
+
+func TestValidateEnvironment_ENV029_BoundaryInfrastructure(t *testing.T) {
+	tests := []struct {
+		name    string
+		infra   string
+		wantErr bool
+	}{
+		{name: "valid managed-switch", infra: "managed-switch", wantErr: false},
+		{name: "valid firewall", infra: "firewall", wantErr: false},
+		{name: "valid ids-sensor", infra: "ids-sensor", wantErr: false},
+		{name: "valid vlan-only", infra: "vlan-only", wantErr: false},
+		{name: "valid other", infra: "other", wantErr: false},
+		{name: "invalid hub", infra: "hub", wantErr: true},
+		{name: "missing (optional)", infra: "", wantErr: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root, _ := setupValidEnv(t)
+			infraLine := ""
+			if tc.infra != "" {
+				infraLine = fmt.Sprintf("    infrastructure: %q", tc.infra)
+			}
+			envContent := fmt.Sprintf(`
+schema_version: "0.1"
+environment:
+  id: "test-env"
+networks:
+  - ref: "eth-net"
+placements:
+  - id: "plc-01"
+    device: "test-plc"
+    network: "eth-net"
+    ip: "10.0.0.10"
+    modbus_port: 5020
+    role: "Test PLC"
+    register_map_variant: "default"
+boundaries:
+  - between: ["eth-net", "eth-net"]
+    state: "enforced"
+%s
+`, infraLine)
+			envDir := writeEnvDir(t, root, "test-env", envContent)
+			result := ValidateEnvironment(envDir)
+			gotErr := containsRule(result, "ENV-029")
+			if gotErr != tc.wantErr {
+				t.Errorf("infrastructure=%q wantErr=%v gotErr=%v\n%s",
+					tc.infra, tc.wantErr, gotErr, result.String(envDir))
+			}
+		})
+	}
+}
+
+func TestValidateEnvironment_ENV030_BoundaryInfrastructureOtherWarns(t *testing.T) {
+	root, _ := setupValidEnv(t)
+	envDir := writeEnvDir(t, root, "test-env", `
+schema_version: "0.1"
+environment:
+  id: "test-env"
+networks:
+  - ref: "eth-net"
+placements:
+  - id: "plc-01"
+    device: "test-plc"
+    network: "eth-net"
+    ip: "10.0.0.10"
+    modbus_port: 5020
+    role: "Test PLC"
+    register_map_variant: "default"
+boundaries:
+  - between: ["eth-net", "eth-net"]
+    state: "enforced"
+    infrastructure: "other"
+`)
+	result := ValidateEnvironment(envDir)
+	if !containsRuleWithSeverity(result, "ENV-030", SeverityWarning) {
+		t.Errorf("expected ENV-030 warning for infrastructure \"other\"\n%s", result.String(envDir))
+	}
+}
+
+// TestValidateEnvironment_RegressionExistingEnvironments validates the three real
+// environments pass cleanly after retroactive archetype/era_span tagging.
+func TestValidateEnvironment_RegressionExistingEnvironments(t *testing.T) {
+	designRoot := findDesignRootForTests(t)
+	envIDs := []string{
+		"greenfield-water-mfg",
+		"pipeline-monitoring",
+		"quickstart-example",
+	}
+	for _, id := range envIDs {
+		t.Run(id, func(t *testing.T) {
+			envDir := filepath.Join(designRoot, "environments", id)
+			result := ValidateEnvironment(envDir)
+			if result.HasErrors() {
+				t.Errorf("%s has validation errors:\n%s", id, result.String(envDir))
+			}
+		})
+	}
+}
+

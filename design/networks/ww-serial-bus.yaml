@@ -1,0 +1,26 @@
+# ww-serial-bus.yaml - Brownfield Wastewater DH-485 Serial Backbone Network Atom
+# CRITICAL DISTINCTION -- physical layer vs. protocol:
+#   Physical layer: RS-485 2-wire multidrop electrical standard (EIA-485).
+#   Protocol:       DH-485 (Allen-Bradley proprietary token-passing, NOT Modbus RTU).
+#   These are different things. RS-485 is the wire specification; DH-485 is what runs on it.
+#   This bus is NOT Modbus RTU. Direct RS-485 attachment with a Modbus polling tool
+#   will receive no response -- the bus speaks DH-485 only.
+#   Access to SLC-500 data files requires Modbus RTU via ProSoft MVI46-MCM modules
+#   installed in each SLC-500 chassis. The ProSoft module translates between SLC-500
+#   data files (N7:, F8:) and Modbus holding registers on its own RS-485 port.
+#   That ProSoft RS-485 port is what the Moxa NPort 5150 (2008 addition) bridges
+#   to Ethernet -- not the DH-485 bus itself.
+# This serial backbone was installed in 1997 with the original plant. It cannot be
+# retired without a full plant shutdown. The Moxa gateway (2008) added Ethernet access
+# but did not replace the serial bus. Devices on this bus are invisible to IP-based tools.
+schema_version: "0.1"
+
+network:
+  id: "ww-serial-bus"
+  name: "Wastewater DH-485 Serial Bus"
+  type: "serial-rs485"         # ethernet | serial-rs485 | serial-rs232
+  description: "1997 DH-485 serial backbone behind Moxa gateway - SLC-500s invisible to IP tools"
+
+properties:
+  managed_switch: false        # Serial bus: no switch, no monitoring tap point
+  span_capable: false          # No passive monitoring -- Moxa gateway is the only IP endpoint

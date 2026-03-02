@@ -23,6 +23,8 @@ environment:
   id: "quickstart-example"
   name: "Quickstart Training Lab"
   description: "Minimal 3-PLC environment for learning the authoring workflow. Single Purdue Level 1 segment -- not a production architecture."
+  archetype: "modern-segmented"
+  era_span: "2024"
 
 # All networks used by any placement must be listed here.
 # This environment reuses wt-level1 (subnet 10.10.10.0/24) from the greenfield-water-mfg

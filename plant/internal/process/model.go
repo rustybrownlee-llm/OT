@@ -46,6 +46,12 @@ var noisyUnits = map[string]bool{
 	"btu/scf":  true, // British thermal units per standard cubic foot (heating value)
 	"sg":       true, // specific gravity (dimensionless ratio)
 	"lb/mmscf": true, // pounds per million standard cubic feet (moisture content)
+	// Wastewater treatment units (SOW-018.0)
+	"ft":              true, // feet (clarifier level, basin level, sludge blanket depth)
+	"in wc":           true, // inches water column (bar screen differential pressure)
+	"scfm":            true, // standard cubic feet per minute (aeration air flow rate)
+	"mg o2/g mlss/hr": true, // specific oxygen uptake rate (SOUR, calculated analog value)
+	"gal x1000":       true, // thousands of gallons (flow totalizer -- noisy from accumulated flow variation)
 }
 
 // isNoisyUnit reports whether the register unit type should receive sensor noise.

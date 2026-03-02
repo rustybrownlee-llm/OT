@@ -1,0 +1,20 @@
+schema_version: "0.1"
+environment:
+  id: "test-flat"
+  name: "Test Flat Environment"
+  description: "Legacy flat test environment for unit tests"
+  archetype: "legacy-flat"
+  era_span: "2015"
+
+networks:
+  - ref: "test-flat-net"
+
+placements:
+  - id: "flat-plc-01"
+    device: "test-plc"
+    network: "test-flat-net"
+    ip: "192.168.1.10"
+    modbus_port: 5050
+    role: "Flat Network Device"
+    register_map_variant: "default"
+    installed: 2015

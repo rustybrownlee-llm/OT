@@ -1,0 +1,137 @@
+# environment.yaml - Brownfield Wastewater Treatment Plant
+# Municipal WWTP built 1997 with ad-hoc modernization through 2022.
+# Hybrid architecture: partial Purdue segmentation (Level 3 only), flat Level 1,
+# persistent serial backbone, cellular vendor access.
+#
+# Network topology:
+#
+#   [SCADA Server -- not modeled]
+#          |
+#   ww-level3 (VLAN 30, 10.30.30.0/24, managed switch 2018)
+#          | enforced boundary (managed switch + VLAN)
+#          | (NO Level 2 -- boundary absent; HMI sits on flat segment)
+#          |
+#   ww-flat (192.168.10.0/24, unmanaged switch 1997)
+#   /       |       \       \
+# [ww-plc-03]  [ww-gw-01]==serial==[ww-plc-01] [ww-plc-02]
+# CompactLogix  Moxa NPort   ww-serial-bus  SLC-500  SLC-500
+# (2013)        (2008)       DH-485         (1997)   (1997)
+#
+# [ww-modem-01] -- Cradlepoint (2022, ww-wan cellular WAN)
+#
+# Key educational contrasts with greenfield-water-mfg and pipeline-monitoring:
+# - Frankenstein hybrid: three eras of technology sharing one unmanaged switch
+# - Partial segmentation: Level 3 has a VLAN; Level 1 is still flat from 1997
+# - Internet exposure: Cradlepoint cellular modem provides WAN path to OT flat segment
+# - Serial backbone persistence: DH-485 still active 27 years after original installation
+# - Audit response pattern: compliance checkbox checked, actual risk reduced minimally
+#
+# Composability proof (ADR-009): this environment is assembled entirely from existing
+# atomic YAML building blocks without modifying plant runtime code or the validator.
+
+schema_version: "0.1"
+
+environment:
+  id: "brownfield-wastewater"
+  name: "Brownfield Wastewater Treatment Plant"
+  description: "Municipal WWTP built 1997 with ad-hoc modernization through 2022. Hybrid architecture: partial Purdue segmentation (Level 3 only), flat Level 1, persistent serial backbone, cellular vendor access."
+  archetype: "hybrid"
+  era_span: "1997-2022"
+
+# All networks used by placements in this environment must be listed here.
+# Serial links are networks too -- they just have no subnet property.
+networks:
+  - ref: "ww-flat"
+  - ref: "ww-serial-bus"
+  - ref: "ww-level3"
+  - ref: "ww-wan"
+
+# Boundary states describe segmentation between network tiers.
+# Only one boundary exists in this facility -- the 2018 compliance audit response.
+boundaries:
+  - between: ["ww-level3", "ww-flat"]
+    state: "enforced"
+    infrastructure: "managed-switch"
+    installed: 2018
+    notes: "Added after state compliance audit. Managed switch with VLAN 30 creates real boundary for SCADA server. Only properly segmented piece of the facility."
+
+  # NOTE: No boundary between ww-level3 and ww-serial-bus. The serial bus is a physical
+  # layer (DH-485), not a Purdue level. Boundaries describe segmentation between network
+  # tiers, not between media types. The absence of Level 2 is a facility narrative point,
+  # not a boundary definition.
+
+# Placements wire device atoms onto networks with specific addressing.
+# Each placement ID must be unique within this environment.
+# Era markers (installed) identify the year each device was placed in this facility.
+placements:
+  # ---- Era: 1997 Original Build -- SLC-500 PLCs on DH-485 serial bus ----
+  # Serial devices: no Modbus TCP port. Accessed via ww-gw-01 at port 5063, unit IDs 1 and 2.
+
+  - id: "ww-plc-01"
+    device: "slc-500-05"
+    network: "ww-serial-bus"
+    serial_address: 1
+    gateway: "ww-gw-01"
+    role: "Influent Screening and Primary Treatment"
+    register_map_variant: "ww-influent"
+    installed: 1997
+
+  - id: "ww-plc-02"
+    device: "slc-500-05"
+    network: "ww-serial-bus"
+    serial_address: 2
+    gateway: "ww-gw-01"
+    role: "Secondary Treatment and Effluent Discharge"
+    register_map_variant: "ww-effluent"
+    installed: 1997
+
+  # ---- Era: 2008 Ethernet Bridge -- Moxa gateway for remote monitoring ----
+  # Gateway bridges Modbus TCP from ww-flat to Modbus RTU on ww-serial-bus.
+  # Serial devices (ww-plc-01, ww-plc-02) are accessed via unit IDs 1 and 2 through this port.
+
+  - id: "ww-gw-01"
+    device: "moxa-nport-5150"
+    network: "ww-flat"
+    ip: "192.168.10.20"
+    modbus_port: 5063
+    role: "Serial-to-Ethernet Gateway (DH-485 via ProSoft to Modbus RTU/TCP)"
+    # NOTE: ww-serial-gateway variant is a simulated abstraction. Real NPort 5150 has no Modbus registers.
+    register_map_variant: "ww-serial-gateway"
+    installed: 2008
+    bridges:
+      - from_network: "ww-flat"
+        to_network: "ww-serial-bus"
+
+  # ---- Era: 2013 Partial Modernization -- CompactLogix for aeration ----
+  # Ethernet-native PLC connected directly to the existing flat switch. No segmentation added.
+  # Primary attack surface: do_setpoint register (writing 0.0-0.5 mg/L creates anoxic conditions).
+
+  - id: "ww-plc-03"
+    device: "compactlogix-l33er"
+    network: "ww-flat"
+    ip: "192.168.10.30"
+    modbus_port: 5062
+    role: "Aeration Blower Control (2013 modernization)"
+    register_map_variant: "ww-aeration"
+    installed: 2013
+
+  # ---- Era: 2022 Vendor Remote Access -- Cradlepoint cellular modem ----
+  # "Temporary" installation by blower vendor for predictive maintenance (blower_run_hours read).
+  # Default credentials (admin/admin) never changed. NAT enabled.
+  # Connected to ww-flat by vendor technician without network architecture guidance.
+  # Still present four years after "temporary" installation.
+
+  - id: "ww-modem-01"
+    device: "cradlepoint-ibr600"
+    network: "ww-flat"
+    ip: "192.168.10.99"
+    modbus_port: 5064
+    role: "Vendor Remote Access Gateway (blower predictive maintenance)"
+    register_map_variant: "vendor-remote-access"
+    installed: 2022
+    additional_networks:
+      - network: "ww-wan"
+        ip: "10.30.40.2"  # Cradlepoint WAN interface IP (10.30.40.0/30, carrier-side is 10.30.40.1)
+    bridges:
+      - from_network: "ww-flat"
+        to_network: "ww-wan"

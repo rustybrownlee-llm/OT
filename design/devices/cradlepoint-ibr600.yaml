@@ -1,0 +1,119 @@
+# cradlepoint-ibr600.yaml - Cradlepoint IBR600 Cellular Modem/Router Device Atom
+# EDUCATIONAL ABSTRACTION: Real Cradlepoint IBR600 devices expose management via HTTPS
+# and SNMP -- they have no Modbus TCP interface. The register map below is a simulated
+# abstraction that models gateway management status as Modbus holding registers. This
+# approach is consistent with the Moxa NPort 5150 pattern: infrastructure devices with
+# no native Modbus become discoverable via Modbus TCP for monitoring module training.
+# Teaching value: A cellular gateway appears as a device on the OT network during IP
+# discovery scans. Its presence is often a surprise -- operators who approved "temporary"
+# vendor access may not realize the device is still running years later.
+# DEFAULT CREDENTIALS: admin/admin (factory default, never changed in typical OT
+# installations). NAT is enabled by default, providing the connected vendor cloud
+# access to all devices on the flat OT network. Port forwarding capability exists.
+# INSTALLATION CONTEXT (per ADR-006 D1): The IBR600 was installed in 2022 by the
+# blower vendor for predictive maintenance access to CompactLogix blower_run_hours data.
+# The vendor technician connected it to ww-flat (192.168.10.0/24) because no one
+# provided network architecture guidance. "Temporary" installation. Still there.
+# Vintage 2019 = product model era (IBR600 product line active 2015-2022).
+# Installation date 2022 is set via the installed: field in the environment placement.
+schema_version: "0.1"
+
+device:
+  id: "cradlepoint-ibr600"
+  vendor: "Cradlepoint"
+  model: "IBR600"
+  category: "gateway"          # plc | gateway | hmi | sensor | relay | safety-controller
+  vintage: 2019
+  description: "Cellular 4G/LTE router for vendor remote access. Default credentials admin/admin never changed. NAT enabled -- vendor cloud reaches all devices on connected OT network. Educational Modbus TCP abstraction (real device uses HTTPS/SNMP). Installed as temporary vendor access; permanent in practice."
+
+connectivity:
+  ports:
+    # LAN: 4-port Ethernet switch connecting to OT flat network segment.
+    - type: "ethernet"
+      protocols: ["modbus-tcp"]
+    # WAN: 4G/LTE cellular modem -- carrier-side traffic bypasses all on-premises monitoring.
+    - type: "ethernet"
+      protocols: []             # WAN interface -- no simulated Modbus on cellular side
+  response_delay_ms: 150       # Cellular RTT overhead: 100-300ms typical; higher than LAN devices
+  response_jitter_ms: 50       # Cellular links have significant jitter due to RF conditions
+  concurrent_connections: 4
+
+registers:
+  max_holding: 7
+  max_coils: 0                 # Management device -- no process coils
+  max_input_registers: 0
+  max_discrete_inputs: 0
+  # Zero-based addressing (Modbus TCP convention for modern gateway devices).
+  addressing: "zero-based"
+  float_byte_order: "big-endian"   # Network byte order (Modbus standard)
+  max_registers_per_read: 125
+
+register_map_variants:
+  vendor-remote-access:
+    # SIMULATED: Real Cradlepoint IBR600 does not expose Modbus registers.
+    # This variant models cellular gateway management status as an educational abstraction,
+    # teaching engineers that a cellular gateway is visible as a device on the OT network
+    # during network discovery -- and its presence is often a discovery-exercise surprise.
+    # All registers are read-only -- management configuration requires HTTPS (admin/admin).
+    # Signal strength uses unsigned magnitude (0-120) rather than signed dBm to avoid
+    # 16-bit signed Modbus encoding issues. 0=no signal (-120 dBm); 120=perfect (0 dBm).
+    # Typical LTE signal: good <60, marginal 60-90, poor >90.
+    holding:
+      - address: 0
+        name: "wan_link_status"
+        description: "Cellular WAN link state (0=down/no carrier, 1=connecting/authenticating, 2=connected/data session active)"
+        unit: "enum"
+        scale_min: 0
+        scale_max: 2
+        writable: false
+      - address: 1
+        name: "signal_strength"
+        description: "Cellular signal strength as unsigned magnitude (0=no signal/-120 dBm, 120=perfect/0 dBm; stored as unsigned to avoid 16-bit signed Modbus encoding issues; good LTE: <60, poor: >90)"
+        unit: "dBm-magnitude"
+        scale_min: 0
+        scale_max: 120
+        writable: false
+      - address: 2
+        name: "data_usage_gb"
+        description: "Cellular data usage this billing cycle in whole gigabytes (0-999 GB fits 16-bit register; far exceeds any reasonable OT maintenance cellular plan -- anomalous high values indicate unauthorized data exfiltration)"
+        unit: "GB"
+        scale_min: 0
+        scale_max: 999
+        writable: false
+      - address: 3
+        name: "uptime_seconds"
+        description: "Device uptime since last power cycle in seconds (0-65535; wraps at ~18.2 hours -- acceptable for simulation; very low uptime indicates recent reboot or power interruption)"
+        unit: "s"
+        scale_min: 0
+        scale_max: 65535
+        writable: false
+      - address: 4
+        name: "active_lan_clients"
+        description: "Active LAN clients on OT network (0-10; reflects actual OT device count on static-IP network, not DHCP scope; OT devices use static IPs; typical value 2-5 in this facility)"
+        unit: "count"
+        scale_min: 0
+        scale_max: 10
+        writable: false
+      - address: 5
+        name: "nat_mode"
+        description: "Network address translation mode (0=disabled, 1=enabled; always 1 in factory default config -- enables vendor cloud to reach all devices on connected OT network via port forwarding)"
+        unit: "enum"
+        scale_min: 0
+        scale_max: 1
+        writable: false
+      - address: 6
+        name: "vpn_tunnel_status"
+        description: "VPN tunnel to vendor cloud platform status (0=none/not configured, 1=configured but inactive, 2=active/established; active VPN provides encrypted path from vendor cloud to OT network)"
+        unit: "enum"
+        scale_min: 0
+        scale_max: 2
+        writable: false
+    coils: []  # No process control coils -- management device only (max_coils: 0)
+
+diagnostics:
+  web_server: true             # HTTPS management interface (admin/admin)
+  web_port: 443
+  snmp: true                   # SNMP management (community string typically default)
+  syslog: false
+  fault_log: false
+  fault_log_depth: 0

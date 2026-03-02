@@ -1,0 +1,126 @@
+{{define "topology_view_content"}}
+{{if .EnvName}}
+<div class="d-flex align-items-center gap-2 mb-3">
+    <h4 class="mb-0">{{.EnvName}}</h4>
+    {{if .Archetype}}
+    <span class="badge bg-secondary">{{.Archetype}}</span>
+    {{end}}
+    {{if .EraSpan}}
+    <span class="text-muted small">Era: {{.EraSpan}}</span>
+    {{end}}
+</div>
+
+{{if .Levels}}
+<div class="topology-diagram">
+    {{$archetype := .Archetype}}
+    {{$boundaries := .Boundaries}}
+    {{$bridges := .Bridges}}
+
+    {{range $i, $lvl := .Levels}}
+    {{/* Render boundary separator above this level if one matches from the previous level */}}
+    {{if gt $i 0}}
+        {{range $boundaries}}
+        {{if eq .ToLevel $lvl.Name}}
+        <div class="{{.CSSClass}} mx-2 mb-2 position-relative" style="margin-top: -8px;">
+            {{if eq .State "absent"}}
+            <div class="text-danger small fw-semibold ps-2" style="margin-top: 2px;">
+                NO BOUNDARY
+                {{if .Infrastructure}}&mdash; missing: {{.Infrastructure}}{{end}}
+            </div>
+            {{else if eq .State "enforced"}}
+            <div class="text-success small ps-2" style="margin-top: 2px;">
+                Boundary: {{.Infrastructure}}
+                {{if .Installed}}<span class="text-muted">({{.Installed}})</span>{{end}}
+            </div>
+            {{else if eq .State "intended"}}
+            <div class="text-warning small ps-2" style="margin-top: 2px;">
+                Intended boundary{{if .Infrastructure}}: {{.Infrastructure}}{{end}}
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+        {{end}}
+    {{end}}
+
+    {{/* Level container -- CSS class varies by level type */}}
+    {{$levelClass := "topology-level topology-purdue"}}
+    {{if eq $lvl.PLevel -1}}{{$levelClass = "topology-level topology-flat"}}{{end}}
+    {{if eq $lvl.PLevel -2}}{{$levelClass = "topology-level topology-serial"}}{{end}}
+    {{if eq $lvl.PLevel 99}}{{$levelClass = "topology-level topology-wan"}}{{end}}
+
+    <div class="{{$levelClass}} mb-2">
+        <div class="topology-level-hdr">
+            {{$lvl.Name}}
+            {{if gt $lvl.PLevel 0}}
+            <span class="text-muted fw-normal" title="Level assignments reflect the reference design. Real environments require architectural analysis.">&#9432;</span>
+            {{end}}
+        </div>
+
+        {{/* Network segments */}}
+        {{if $lvl.Networks}}
+        <div class="d-flex flex-wrap gap-2 mb-2">
+            {{range $lvl.Networks}}
+            {{$netClass := "network-segment network-unmanaged"}}
+            {{if .Managed}}{{$netClass = "network-segment network-managed"}}{{end}}
+            <div class="{{$netClass}} small" style="min-width: 180px;">
+                <div class="fw-semibold">{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</div>
+                <div class="text-muted" style="font-size: 0.7rem;">
+                    {{if .Subnet}}<code>{{.Subnet}}</code>{{end}}
+                    {{if .Managed}}<span class="badge bg-success" style="font-size: 0.6rem;">managed</span>{{else if eq .Type "ethernet"}}<span class="badge bg-danger" style="font-size: 0.6rem;">unmanaged</span>{{end}}
+                    {{if .SPAN}}<span class="badge bg-info text-dark" style="font-size: 0.6rem;">SPAN</span>{{end}}
+                </div>
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+
+        {{/* Device nodes */}}
+        {{if $lvl.Devices}}
+        <div class="d-flex flex-wrap gap-2">
+            {{range $lvl.Devices}}
+            {{$nodeClass := "device-node"}}
+            {{if .Serial}}{{$nodeClass = "device-node device-serial"}}{{end}}
+            <div class="{{$nodeClass}}" style="min-width: 160px; max-width: 220px;">
+                <div class="fw-semibold small">{{.ID}}</div>
+                <div class="text-muted" style="font-size: 0.75rem;">{{.DeviceType}}</div>
+                {{if .Role}}
+                <div class="text-muted" style="font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{.Role}}">{{.Role}}</div>
+                {{end}}
+                {{if .IP}}<div><code style="font-size: 0.7rem;">{{.IP}}</code></div>{{end}}
+                {{if .Serial}}<div class="text-muted" style="font-size: 0.7rem;">serial addr: {{.SerialAddr}}</div>{{end}}
+                {{if .GatewayID}}<div class="bridge-label">via {{.GatewayID}}</div>{{end}}
+                {{if .EraClass}}
+                <div class="mt-1">
+                    <span class="era-badge {{.EraClass}}">{{if .Installed}}{{.Installed}}{{else}}unknown era{{end}}</span>
+                </div>
+                {{end}}
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+
+    </div>
+    {{end}}{{/* end range levels */}}
+</div>
+
+{{/* Bridge summary */}}
+{{if .Bridges}}
+<div class="mt-3">
+    <div class="fw-semibold small text-muted mb-1">Gateway Bridges</div>
+    {{range .Bridges}}
+    <div class="small text-muted">
+        <code>{{.DeviceID}}</code> bridges
+        <code>{{.FromNetwork}}</code> &rarr; <code>{{.ToNetwork}}</code>
+    </div>
+    {{end}}
+</div>
+{{end}}
+
+{{else}}
+<div class="alert alert-secondary">No topology data available for this environment.</div>
+{{end}}
+
+{{else}}
+<div class="alert alert-secondary">Select an environment to view its topology.</div>
+{{end}}
+{{end}}

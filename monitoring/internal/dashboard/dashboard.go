@@ -50,6 +50,7 @@ func NewDashboard(api *APIClient, lib *DesignLibrary) *Dashboard {
 		"assets_table.html",
 		"asset_registers.html",
 		"alerts_table.html",
+		"partials/topology_view.html",
 	))
 	d.router = d.buildRouter()
 	return d
@@ -75,6 +76,11 @@ func (d *Dashboard) buildRouter() chi.Router {
 	r.Get("/alerts", d.alertsHandler)
 	r.Get("/partials/alerts-table", d.alertsTableHandler)
 	r.Post("/alerts/{id}/acknowledge", d.alertAckHandler)
+
+	// Topology section.
+	r.Get("/topology", d.topologyHandler)
+	r.Get("/topology/{env-id}", d.topologyEnvHandler)
+	r.Get("/partials/topology-view/{env-id}", d.topologyPartialHandler)
 
 	// Reference section.
 	r.Get("/design/devices", d.designDevicesHandler)

@@ -303,8 +303,9 @@ func TestLoadDevice_CompactLogix_WaterTreatment(t *testing.T) {
 		}
 	}
 
-	if got := len(dev.RegisterMapVariants); got != 4 {
-		t.Errorf("register_map_variants count = %d, want 4", got)
+	// SOW-018.0 added ww-aeration as the 5th variant (ww-aeration for brownfield wastewater).
+	if got := len(dev.RegisterMapVariants); got != 5 {
+		t.Errorf("register_map_variants count = %d, want 5", got)
 	}
 }
 

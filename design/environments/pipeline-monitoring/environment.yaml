@@ -37,6 +37,8 @@ environment:
   id: "pipeline-monitoring"
   name: "Pipeline Monitoring Station"
   description: "Remote unmanned compressor station with flat station LAN and WAN backhaul to SCADA master"
+  archetype: "legacy-flat"
+  era_span: "2015"
 
 # All networks used by placements in this environment must be listed here.
 # Serial links are networks too -- they just have no subnet property.

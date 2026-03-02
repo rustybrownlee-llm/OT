@@ -12,10 +12,14 @@
 //
 // Water treatment models: IntakeModel, TreatmentModel, DistributionModel.
 // Manufacturing models: LineAModel, CoolingModel.
-// Gateway models: GatewayModel (serial-gateway), PipelineGatewayModel (pipeline-serial).
+// Gateway models: GatewayModel (serial-gateway), PipelineGatewayModel (pipeline-serial),
+// WastewaterGatewayModel (ww-serial-gateway).
 // Pipeline models: CompressorModel (compressor-control), MeteringModel (pipeline-metering),
 // StationMonitorModel (station-monitoring), GasAnalysisModel (gas-analysis).
+// Wastewater models: InfluentModel (ww-influent), EffluentModel (ww-effluent),
+// AerationModel (ww-aeration), CellularModemModel (vendor-remote-access).
 //
 // Water treatment and manufacturing implemented in SOW-003.0.
 // Pipeline models implemented in SOW-009.0.
+// Wastewater models implemented in SOW-018.0.
 package process

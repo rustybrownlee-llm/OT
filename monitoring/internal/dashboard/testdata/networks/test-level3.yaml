@@ -1,0 +1,11 @@
+schema_version: "0.1"
+network:
+  id: "test-level3"
+  name: "Test Level 3 Network"
+  type: "ethernet"
+  description: "Managed Level 3 network for unit tests"
+properties:
+  subnet: "10.30.30.0/24"
+  vlan: 30
+  managed_switch: true
+  span_capable: true

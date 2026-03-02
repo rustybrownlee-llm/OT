@@ -1,0 +1,37 @@
+schema_version: "0.1"
+environment:
+  id: "test-hybrid"
+  name: "Test Hybrid Environment"
+  description: "Hybrid test environment with mixed boundaries for unit tests"
+  archetype: "hybrid"
+  era_span: "1997-2022"
+
+networks:
+  - ref: "test-level3"
+  - ref: "test-flat-net"
+
+boundaries:
+  - between: ["test-level3", "test-flat-net"]
+    state: "enforced"
+    infrastructure: "managed-switch"
+    installed: 2018
+    notes: "Boundary added after compliance audit"
+
+placements:
+  - id: "hybrid-plc-01"
+    device: "test-plc"
+    network: "test-level3"
+    ip: "10.30.30.10"
+    modbus_port: 5060
+    role: "SCADA Server Level 3"
+    register_map_variant: "default"
+    installed: 2018
+
+  - id: "hybrid-plc-02"
+    device: "test-plc"
+    network: "test-flat-net"
+    ip: "192.168.10.30"
+    modbus_port: 5061
+    role: "Legacy Flat Device"
+    register_map_variant: "default"
+    installed: 1997

@@ -15,14 +15,17 @@ func TestLoadDesignLibrary_ValidFixtures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDesignLibrary: unexpected error: %v", err)
 	}
+	// 1 device: test-plc
 	if len(lib.Devices) != 1 {
 		t.Errorf("Devices: got %d, want 1", len(lib.Devices))
 	}
-	if len(lib.Networks) != 1 {
-		t.Errorf("Networks: got %d, want 1", len(lib.Networks))
+	// 3 networks: test-net, test-level3, test-flat-net (added by SOW-019.0 for topology tests)
+	if len(lib.Networks) != 3 {
+		t.Errorf("Networks: got %d, want 3", len(lib.Networks))
 	}
-	if len(lib.Environments) != 1 {
-		t.Errorf("Environments: got %d, want 1", len(lib.Environments))
+	// 3 environments: test-env, test-hybrid, test-flat (added by SOW-019.0 for topology tests)
+	if len(lib.Environments) != 3 {
+		t.Errorf("Environments: got %d, want 3", len(lib.Environments))
 	}
 }
 
@@ -203,6 +206,73 @@ func TestRawYAMLStored(t *testing.T) {
 	}
 	if lib.RawYAML["environments/test-env"] == "" {
 		t.Error("RawYAML for environments/test-env should not be empty")
+	}
+}
+
+// TestEnvironmentParsing_SOW016Fields verifies that archetype, era_span, installed,
+// and boundaries fields are parsed correctly from environment YAML (SOW-016.0 additions).
+func TestEnvironmentParsing_SOW016Fields(t *testing.T) {
+	lib, err := dashboard.LoadDesignLibrary(testDataDir)
+	if err != nil {
+		t.Fatalf("LoadDesignLibrary: %v", err)
+	}
+	env, ok := lib.Environments["test-hybrid"]
+	if !ok {
+		t.Fatal("test-hybrid environment not found in library")
+	}
+	if env.Env.Archetype != "hybrid" {
+		t.Errorf("Archetype: got %q, want %q", env.Env.Archetype, "hybrid")
+	}
+	if env.Env.EraSpan != "1997-2022" {
+		t.Errorf("EraSpan: got %q, want %q", env.Env.EraSpan, "1997-2022")
+	}
+	if len(env.Boundaries) != 1 {
+		t.Fatalf("Boundaries: got %d, want 1", len(env.Boundaries))
+	}
+	b := env.Boundaries[0]
+	if b.State != "enforced" {
+		t.Errorf("Boundary state: got %q, want %q", b.State, "enforced")
+	}
+	if b.Infrastructure != "managed-switch" {
+		t.Errorf("Boundary infrastructure: got %q, want %q", b.Infrastructure, "managed-switch")
+	}
+	if b.Installed == nil || *b.Installed != 2018 {
+		t.Errorf("Boundary installed: want 2018, got %v", b.Installed)
+	}
+	if len(b.Between) != 2 {
+		t.Fatalf("Boundary.Between: got %d, want 2", len(b.Between))
+	}
+	if b.Between[0] != "test-level3" || b.Between[1] != "test-flat-net" {
+		t.Errorf("Boundary.Between: got %v, want [test-level3, test-flat-net]", b.Between)
+	}
+}
+
+// TestPlacementParsing_InstalledField verifies that installed year is parsed from
+// placement YAML (SOW-016.0 addition).
+func TestPlacementParsing_InstalledField(t *testing.T) {
+	lib, err := dashboard.LoadDesignLibrary(testDataDir)
+	if err != nil {
+		t.Fatalf("LoadDesignLibrary: %v", err)
+	}
+	env, ok := lib.Environments["test-hybrid"]
+	if !ok {
+		t.Fatal("test-hybrid not found")
+	}
+	var found *dashboard.Placement
+	for i := range env.Placements {
+		if env.Placements[i].ID == "hybrid-plc-02" {
+			found = &env.Placements[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("hybrid-plc-02 placement not found")
+	}
+	if found.Installed == nil {
+		t.Fatal("hybrid-plc-02: Installed should not be nil")
+	}
+	if *found.Installed != 1997 {
+		t.Errorf("hybrid-plc-02 Installed: got %d, want 1997", *found.Installed)
 	}
 }
 

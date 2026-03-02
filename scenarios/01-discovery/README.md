@@ -572,6 +572,417 @@ tells you how behavior changes over time -- and that is where anomalies become v
 
 ---
 
+## Phase F: Hybrid Environment Discovery
+
+**Prerequisite**: Phases A-E completed. Wastewater environment running:
+
+```
+docker compose --profile wastewater --profile monitor up
+```
+
+Wait approximately 10-15 seconds for the monitor to complete its initial discovery scan.
+
+This phase extends the discovery exercise to the `brownfield-wastewater` environment. The wastewater
+facility presents discovery challenges that do not exist in the greenfield water/manufacturing
+environment: serial devices invisible to IP scanning, an unexpected internet-connected device, and
+a mixed era architecture that spans 25 years. Apply the same techniques from Phases A-D and
+observe where they succeed and where they fail.
+
+---
+
+### Step F1: Start the wastewater environment
+
+Verify the wastewater environment is responding before proceeding:
+
+```
+nmap -sV -p 5062-5064 localhost
+```
+
+You should see 3 open ports. If you see fewer, the wastewater profile is not running. Start it
+with:
+
+```
+docker compose --profile wastewater up
+```
+
+**Note on port numbers**: In this simulator, wastewater devices are bound to ports 5062-5064. In
+the real facility, all devices would respond on port 502. Port 5062 maps to the CompactLogix
+aeration PLC, 5063 maps to the Moxa gateway, and 5064 maps to the Cradlepoint cellular gateway.
+
+---
+
+### Step F2: IP-level scan
+
+Scan the wastewater simulator ports:
+
+```
+nmap -sV -p 5062-5064 localhost
+```
+
+Expected output pattern:
+
+```
+PORT     STATE SERVICE  VERSION
+5062/tcp open  modbus?
+5063/tcp open  modbus?
+5064/tcp open  modbus?
+```
+
+Three open ports. The wastewater facility manager believes there are "about 5 devices." You have
+found 3 network endpoints. The same discrepancy you encountered in Phase A applies here -- there
+are devices that will not appear in an IP scan.
+
+**Compare to the greenfield environment**: In Phase A, you found 4 ports for 6 devices. Here you
+find 3 ports for 5 devices. The pattern is identical: IP scanning undercounts the true device
+population whenever serial devices are present.
+
+---
+
+### Step F3: Enumerate the CompactLogix aeration PLC (port 5062)
+
+The CompactLogix at port 5062 controls the aeration blower system installed in 2013. This device
+is Ethernet-native and uses zero-based addressing (the same as the CompactLogix PLCs in the
+greenfield environment).
+
+Read holding registers (zero-based, input registers via FC04):
+
+```
+mbpoll -a 1 -t 3 -r 0 -c 12 localhost -p 5062
+```
+
+Flag reference:
+- `-a 1` : Modbus unit ID 1
+- `-t 3` : input registers (function code 04)
+- `-r 0` : starting address 0 (zero-based)
+- `-c 12` : read 12 registers
+
+You should receive approximately 11-12 populated values including aeration blower operating
+data: blower run state, blower speed, air flow rate, dissolved oxygen, tank temperature,
+air pressure, total runtime hours, and similar process values. Register at address 11
+(`blower_run_hours`) is an accumulating total -- this is the data point the Cradlepoint
+cellular gateway was installed to transmit to the blower vendor for predictive maintenance.
+
+Record for your asset inventory:
+- IP endpoint: localhost:5062
+- Device: Allen-Bradley CompactLogix L33ER (aeration)
+- Addressing: zero-based (first valid register at address 0)
+- Response time: approximately 5ms
+
+---
+
+### Step F4: Identify the unexpected device at port 5064
+
+Before enumerating port 5063 (which you expect to be a gateway based on Phase C experience),
+examine port 5064 first. The scan showed three endpoints. You know one device (CompactLogix at
+5062). You expected to find one gateway. The third endpoint requires explanation.
+
+Read the registers at port 5064:
+
+```
+mbpoll -a 1 -t 3 -r 0 -c 7 localhost -p 5064
+```
+
+Flag reference:
+- `-t 3` : input registers (function code 04)
+- `-r 0` : starting address 0 (zero-based)
+- `-c 7` : read 7 registers
+
+You should receive approximately 7 values including WAN connection status, signal strength,
+network type (LTE/4G), data usage, and similar cellular network management data.
+
+**Teaching point**: You have found a cellular modem on an OT network. The Cradlepoint IBR600
+at port 5064 was installed in 2022 by the blower vendor for predictive maintenance remote access.
+It was described as "temporary." It is still present four years later.
+
+This device was not in any facility documentation reviewed during scoping. Its presence on the
+flat OT network is the highest-risk finding in this environment: it provides an internet-connected
+path onto the same network segment as the PLCs and the serial gateway.
+
+**Note on the Modbus TCP abstraction**: The registers you just read from port 5064 are an
+educational abstraction (TD-038). The real Cradlepoint IBR600 does not expose a Modbus TCP
+server. Its management interface uses HTTPS (port 443) and SNMP. The Modbus TCP interface in
+this simulator models the cellular gateway's observable state as register data to make it
+discoverable and inspectable with the same tools used for PLCs. The authentication and
+access control findings from this device are discussed in Scenario 02, Phase E.
+
+Record for your asset inventory:
+- IP endpoint: localhost:5064
+- Device: Cradlepoint IBR600 cellular gateway
+- Category: cellular WAN gateway (not a PLC)
+- Note: Modbus TCP registers are a simulator abstraction (TD-038); real device uses HTTPS/SNMP
+
+---
+
+### Step F5: Enumerate through the Moxa gateway (port 5063)
+
+Port 5063 is the Moxa NPort serial-to-Ethernet gateway. Unlike the greenfield Moxa gateway,
+this one bridges to a DH-485 serial bus carrying two SLC-500 PLCs from 1997.
+
+First, read the gateway's own status registers to confirm it is a gateway:
+
+```
+mbpoll -a 1 -t 3 -r 0 -c 9 localhost -p 5063
+```
+
+You should receive gateway status data: serial port status, baud rate, data format, RS-485 mode,
+active connections, TX/RX counts, error count, and uptime. No coils (FC01 returns exception 02).
+
+This is the same pattern as the Moxa gateway in Phase C. You now have a confirmed gateway.
+The process data lives behind it at unit IDs 1 and 2.
+
+**Critical addressing difference**: The SLC-500s behind this gateway use one-based Modbus
+addressing, supplied via ProSoft MVI46-MCM communication modules in each SLC-500 chassis. The
+ProSoft module translates DH-485 native traffic to Modbus RTU on a separate RS-485 port, which
+the Moxa bridges to TCP. The CompactLogix at port 5062 uses zero-based addressing. Start at
+address 1, not 0, when polling the SLC-500s.
+
+Read unit ID 1 (influent SLC-500) -- one-based addressing:
+
+```
+mbpoll -a 1 -t 3 -r 1 -c 9 localhost -p 5063
+```
+
+You should receive approximately 8-9 populated values with influent screening data: flow rate,
+screen differential pressure, pump states, and similar process values. Values will change
+slowly as the process simulation runs.
+
+If you had started at address 0:
+
+```
+mbpoll -a 1 -t 3 -r 0 -c 9 localhost -p 5063
+```
+
+You would receive a Modbus exception 02 (Illegal Data Address). The SLC-500 does not have a
+register at address 0. This is one of the most valuable teaching moments in the hybrid
+environment: the one-based/zero-based contrast is invisible to IP scanning and only apparent
+when you probe register addresses.
+
+Read unit ID 2 (effluent SLC-500) -- one-based addressing:
+
+```
+mbpoll -a 2 -t 3 -r 1 -c 8 localhost -p 5063
+```
+
+You should receive approximately 7-8 populated values with effluent discharge data: final
+flow rate, effluent quality parameters, and similar values.
+
+Confirm the device boundary:
+
+```
+mbpoll -a 3 -t 3 -r 1 -c 5 localhost -p 5063
+```
+
+Expected: Modbus exception 0x0B (Gateway Target Device Failed to Respond). No device at
+unit ID 3.
+
+```
+mbpoll -a 4 -t 3 -r 1 -c 5 localhost -p 5063
+```
+
+Again exception 0x0B. Two consecutive failures confirm the boundary. Two SLC-500s exist:
+unit IDs 1 and 2.
+
+**Observe the response time.** The SLC-500s at unit IDs 1 and 2 should respond in
+approximately 65-95ms with jitter, similar to the SLC-500 and Modicon 984 in Phase C. The
+DH-485 serial bus adds additional latency compared to direct RS-485 connections because
+DH-485 is a token-passing bus protocol -- each device must wait for the token before
+transmitting.
+
+Record for your asset inventory:
+- Unit ID 1: SLC-500 (influent), via Moxa gateway at localhost:5063
+- Unit ID 2: SLC-500 (effluent), via Moxa gateway at localhost:5063
+- Both units: one-based addressing, approximately 65-95ms response via gateway
+- Note: DH-485 bus is not accessible to standard IP monitoring tools. Only the Moxa's
+  Modbus TCP bridge is visible from the Ethernet side.
+
+---
+
+### Step F6: Compare manual discovery to monitoring dashboard
+
+Open the monitoring dashboard asset inventory:
+
+```
+http://localhost:8090/assets
+```
+
+The dashboard should show the `brownfield-wastewater` environment with all 5 devices:
+
+| Device | Access Path | Status |
+|--------|-------------|--------|
+| ww-plc-01 | localhost:5062 | Online |
+| ww-gateway-01 | localhost:5063 | Online |
+| ww-plc-02 | via ww-gateway-01, unit 1 | Online |
+| ww-plc-03 | via ww-gateway-01, unit 2 | Online |
+| ww-cradlepoint-01 | localhost:5064 | Online |
+
+**Compare to your manual inventory**: The monitor found all 5 devices because it is configured
+with the gateway's unit ID scan range (unit IDs 1-2 in monitor.yaml). It applied the same
+stopping rule you applied manually in Step F5: probe unit IDs sequentially, stop at two
+consecutive 0x0B exceptions.
+
+Your nmap scan found 3 of 5 devices. The monitor found all 5. The gap (2 devices) is identical
+to the greenfield environment experience in Phase E -- serial devices are invisible to IP scanning
+regardless of environment complexity.
+
+**Teaching point**: The monitoring dashboard found the Cradlepoint too. From the dashboard's
+perspective, any device that responds to Modbus TCP polling is an asset to inventory. The
+Cradlepoint was not in the facility documentation reviewed during scoping. The monitor does
+not know whether a device belongs -- it knows only what responds.
+
+---
+
+### Step F7: Open the topology view for architecture comparison
+
+Navigate to the topology view for the wastewater environment:
+
+```
+http://localhost:8090/topology/brownfield-wastewater
+```
+
+Examine the visual representation of the hybrid architecture:
+
+- **Level 3 boundary**: Solid line, managed switch (2018). One device sits above this boundary
+  (the SCADA server, which is not modeled in this simulator -- the boundary exists but the device
+  it protects is absent from the simulation scope).
+- **Level 1 flat segment**: The rest of the devices sit on a single flat plane with no internal
+  boundaries. The CompactLogix (2013), Moxa gateway (2008), and Cradlepoint (2022) are all on
+  the same segment as the SLC-500s (1997) behind the gateway.
+- **Absent Level 2**: No Level 2 infrastructure was ever implemented. The HMI sits on the flat
+  segment.
+
+**Teaching point**: The Level 3 boundary is real. It is enforced by a managed switch and VLAN.
+But it protects only the SCADA server, which is not in this simulation's scope. Every operational
+device -- the PLCs, the gateway, the Cradlepoint -- sits on the flat segment below it. The 2018
+compliance audit's only achievement was segmenting a device that is not part of day-to-day
+operations. The audit checkbox was checked; the operational security improvement is minimal.
+
+---
+
+### Step F8: Compare topology across all three environments
+
+Use the environment selector on the topology page to view all three environments. Navigate to
+each:
+
+```
+http://localhost:8090/topology/greenfield-water-mfg
+http://localhost:8090/topology/brownfield-pipeline-station
+http://localhost:8090/topology/brownfield-wastewater
+```
+
+Observe the visual shape of each:
+
+- **greenfield-water-mfg**: Vertical stack, distinct rows for Level 1, Level 2, and Level 3.
+  All boundaries are solid. No era mixing -- every device has the same 2020/2024 installation
+  era. This is what a clean Purdue model implementation looks like.
+
+- **brownfield-pipeline-station**: Single horizontal plane. No stack, no boundaries. All devices
+  at the same visual level. Serial devices appear behind the gateway node. Simple, flat, with
+  a satellite backhaul link (controlled WAN) to the pipeline SCADA master. This is what a 2015
+  single-era legacy flat deployment looks like.
+
+- **brownfield-wastewater**: Partially collapsed stack. One solid boundary at Level 3. Level 2
+  absent. Everything else on a flat segment. Era markers span 1997-2022. The Cradlepoint appears
+  as an outlier -- visually connected to the flat segment but with a cellular WAN link extending
+  outward. This is what 25 years of ad-hoc modernization looks like.
+
+The visual shape of each environment tells the security story before you read a single register.
+
+---
+
+### Step F9: Note the era markers
+
+On the wastewater topology view, observe the era markers on each device placement:
+
+| Device | Installation Year | Notes |
+|--------|------------------|-------|
+| SLC-500 (influent) | 1997 | Original build |
+| SLC-500 (effluent) | 1997 | Original build |
+| Moxa NPort gateway | 2008 | Ethernet bridge added |
+| CompactLogix (aeration) | 2013 | Partial modernization |
+| Cradlepoint IBR600 | 2022 | Vendor "temporary" remote access |
+
+The era span is 25 years (1997-2022). The 1997 SLC-500 was designed for a pre-internet threat
+model -- physical access to the DH-485 wiring was the security boundary. The 2022 Cradlepoint
+assumes LTE/4G connectivity and was designed for environments with internet-facing management
+interfaces. Placing them on the same flat network segment creates a threat model collision: the
+SLC-500 has no defenses against internet-connected adversaries because such adversaries did not
+exist in its design era.
+
+---
+
+### Step F10: Document the discovery in a facility network map
+
+Extend your asset inventory template (from Phase D) to include the wastewater environment.
+Add a second sheet or section covering:
+
+1. **All 5 wastewater devices**: 3 with IP endpoints (CompactLogix at 5062, Moxa gateway at
+   5063, Cradlepoint at 5064) and 2 without (SLC-500 influent and effluent, reachable via
+   the gateway).
+
+2. **Addressing contrast**: The CompactLogix uses zero-based addressing. Both SLC-500s use
+   one-based addressing. The Cradlepoint uses zero-based addressing. Document the addressing
+   convention for each device.
+
+3. **Serial backbone architecture**: The DH-485 bus is a two-layer serial architecture:
+   (a) the DH-485 layer carries native Allen-Bradley traffic between SLC-500 chassis and
+   the ProSoft MVI46-MCM modules, and (b) the ProSoft modules present a separate RS-485 port
+   carrying Modbus RTU, which the Moxa NPort bridges to Modbus TCP. The DH-485 layer is not
+   accessible to any standard IP tool. Only the Modbus RTU side (via Moxa) is reachable from
+   Ethernet.
+
+4. **Internet exposure**: The Cradlepoint provides cellular WAN connectivity. This is the only
+   device in any of the three environments with direct internet exposure. Mark it clearly in
+   your network map.
+
+5. **Monitoring blind spots**: The monitoring module has a SPAN-capable managed switch at Level
+   3 but no SPAN capability on the Level 1 flat segment (unmanaged switch). Traffic on the flat
+   segment is not capturable for passive analysis. The Cradlepoint's cellular traffic is
+   completely outside the monitoring perimeter.
+
+---
+
+## Teaching Points: Hybrid Environment Discovery
+
+**1. IP scan finds 3 of 5 devices.**
+The nmap scan reveals 3 Modbus TCP endpoints. Two SLC-500s on the DH-485 serial bus are
+completely invisible. The monitoring dashboard found all 5 because it is configured to scan
+gateway unit IDs. The gap between IP-scan results and true device count is one of the most
+common findings in brownfield OT assessments.
+
+**2. Three Ethernet endpoints, three different device categories.**
+All three open ports speak Modbus TCP, but they are fundamentally different types of devices:
+the CompactLogix (process controller), the Moxa gateway (infrastructure bridge), and the
+Cradlepoint (network/communications device). Modbus TCP register content is what distinguishes
+them -- process data, serial port statistics, and cellular management data respectively.
+
+**3. One-based vs. zero-based addressing is the most consequential teaching contrast in this environment.**
+The CompactLogix at port 5062 uses zero-based addressing. The SLC-500s behind the gateway use
+one-based addressing (implemented by the ProSoft MVI46-MCM module in each SLC-500 chassis). An
+engineer who polls address 0 on a SLC-500 will receive exception 02 and may incorrectly conclude
+the device is not accessible. The correct technique is to start at address 1 when the device's
+addressing convention is unknown.
+
+**4. The serial backbone has two layers: DH-485 and ProSoft RS-485.**
+DH-485 is an Allen-Bradley proprietary token-passing bus. Standard Modbus tools cannot speak
+DH-485. The ProSoft MVI46-MCM module in each SLC-500 chassis bridges DH-485 to Modbus RTU on
+a separate RS-485 port. The Moxa NPort bridges that RS-485 port to Modbus TCP. Monitoring the
+Moxa's serial_rx_count and serial_error_count registers shows that Modbus traffic is transiting
+the gateway, but provides no visibility into what is happening on the DH-485 side.
+
+**5. The Cradlepoint's presence is a surprise because it wasn't documented.**
+Every facility has undocumented devices. The Cradlepoint was installed by a vendor technician,
+not by facility IT or OT staff. It does not appear in any asset register or network diagram
+provided at the start of the engagement. Manual discovery (or continuous monitoring) is the
+only reliable method for finding undocumented devices.
+
+**6. The topology view shows the architectural story without requiring register enumeration.**
+The visual shape of the wastewater environment -- partial stack, era markers spanning 25 years,
+Cradlepoint extending outward with a cellular link -- communicates the hybrid architecture
+immediately. Use the topology view early in an assessment to orient yourself before beginning
+register enumeration.
+
+---
+
 ## Hints
 
 If you are stuck at any point, read the hints in progressive order:
@@ -603,3 +1014,11 @@ After completing this scenario, you should be able to explain:
     layer documentation) and why real security tools only have the former.
 11. Why anomaly detection requires a baseline learning period and what risks exist during that
     period.
+12. Why IP scanning undercounts the true device population in any environment with serial devices,
+    regardless of environment complexity or era.
+13. What the DH-485/ProSoft RS-485 two-layer serial architecture means for monitoring coverage:
+    only the Modbus RTU side is visible to standard tools.
+14. Why era mixing across 25 years creates a threat model collision when devices share a flat
+    network segment.
+15. How topology visualization communicates architectural security posture without requiring
+    register-level enumeration.

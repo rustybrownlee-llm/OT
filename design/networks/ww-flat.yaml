@@ -1,0 +1,19 @@
+# ww-flat.yaml - Brownfield Wastewater Flat Network Atom
+# Original 1997 plant construction Ethernet backbone: no VLANs, no segmentation,
+# unmanaged 24-port commodity switch (Netgear or equivalent).
+# No SPAN capability -- passive monitoring tools cannot observe this segment.
+# This is the highest-risk segment in the facility: internet-connected via Cradlepoint
+# (2022 addition), flat (no segmentation between devices installed from 1997 to 2022),
+# and unmonitored (unmanaged switch with no SPAN port).
+schema_version: "0.1"
+
+network:
+  id: "ww-flat"
+  name: "Wastewater Flat Network"
+  type: "ethernet"             # ethernet | serial-rs485 | serial-rs232
+  description: "1997 flat network - unmanaged switch, no VLANs, no SPAN, internet-exposed via Cradlepoint"
+
+properties:
+  subnet: "192.168.10.0/24"
+  managed_switch: false        # Unmanaged switch: no SPAN port, no port mirroring, no access control
+  span_capable: false          # Passive monitoring tools cannot observe this segment

@@ -223,6 +223,17 @@ func buildModel(ps mbserver.PlacementStore, logger logging.Logger) process.Proce
 		return process.NewStationMonitorModel(ps.Store, nil)
 	case "gas-analysis":
 		return process.NewGasAnalysisModel(ps.Store, nil)
+	// Wastewater variants (SOW-018.0)
+	case "ww-influent":
+		return process.NewInfluentModel(ps.Store, nil)
+	case "ww-effluent":
+		return process.NewEffluentModel(ps.Store, nil)
+	case "ww-aeration":
+		return process.NewAerationModel(ps.Store, nil)
+	case "ww-serial-gateway":
+		return process.NewWastewaterGatewayModel(ps.Store, nil)
+	case "vendor-remote-access":
+		return process.NewCellularModemModel(ps.Store, nil)
 	default:
 		logger.Debug("no process model for variant, simulation skipped",
 			"placement", ps.PlacementID,

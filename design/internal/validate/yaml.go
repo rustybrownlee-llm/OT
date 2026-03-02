@@ -25,16 +25,17 @@ const (
 // RawDocument holds the top-level YAML for type detection.
 // All doc sub-fields are pointers so absence is distinguishable from zero value.
 type RawDocument struct {
-	SchemaVersion string          `yaml:"schema_version"`
-	Device        *DeviceDoc      `yaml:"device"`
-	Connectivity  *ConnectivityDoc `yaml:"connectivity"`
-	Registers     *RegistersDoc   `yaml:"registers"`
+	SchemaVersion string                `yaml:"schema_version"`
+	Device        *DeviceDoc            `yaml:"device"`
+	Connectivity  *ConnectivityDoc      `yaml:"connectivity"`
+	Registers     *RegistersDoc         `yaml:"registers"`
 	Variants      map[string]VariantDoc `yaml:"register_map_variants"`
-	Network       *NetworkDoc     `yaml:"network"`
+	Network       *NetworkDoc           `yaml:"network"`
 	Properties    *NetworkPropertiesDoc `yaml:"properties"`
-	Environment   *EnvironmentDoc `yaml:"environment"`
-	Networks      []NetworkRefDoc `yaml:"networks"`
-	Placements    []PlacementDoc  `yaml:"placements"`
+	Environment   *EnvironmentDoc       `yaml:"environment"`
+	Networks      []NetworkRefDoc       `yaml:"networks"`
+	Placements    []PlacementDoc        `yaml:"placements"`
+	Boundaries    []BoundaryDoc         `yaml:"boundaries"` // Optional: network boundary state declarations (ADR-010 D4)
 }
 
 // DeviceDoc represents the device: section of a device atom YAML.
@@ -118,6 +119,8 @@ type EnvironmentDoc struct {
 	ID          string `yaml:"id"`
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
+	Archetype   string `yaml:"archetype"`  // Optional: "modern-segmented", "legacy-flat", or "hybrid" (ADR-010 D1)
+	EraSpan     string `yaml:"era_span"`   // Optional: "YYYY" or "YYYY-YYYY" installation era (ADR-010 D3)
 }
 
 // NetworkRefDoc represents a network reference in an environment's networks: list.
@@ -138,6 +141,16 @@ type PlacementDoc struct {
 	RegisterMapVariant string             `yaml:"register_map_variant"`
 	Bridges            []BridgeDoc        `yaml:"bridges"`
 	AdditionalNetworks []AdditionalNetDoc `yaml:"additional_networks"`
+	Installed          *int               `yaml:"installed"` // Optional: year this device was first commissioned in this facility (first run in production)
+}
+
+// BoundaryDoc represents a single network boundary entry in the boundaries: list.
+type BoundaryDoc struct {
+	Between        []string `yaml:"between"`        // Exactly 2 network refs
+	State          string   `yaml:"state"`           // enforced | intended | absent
+	Infrastructure string   `yaml:"infrastructure"`  // Optional enum: managed-switch | firewall | ids-sensor | vlan-only | other
+	Installed      *int     `yaml:"installed"`        // Optional: year this boundary was commissioned
+	Notes          string   `yaml:"notes"`            // Optional: human context for training scenarios
 }
 
 // BridgeDoc represents a gateway bridge entry.

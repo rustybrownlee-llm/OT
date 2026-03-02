@@ -3,6 +3,8 @@ package validate
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"strconv"
 )
 
 // ValidateEnvironment loads and validates an environment directory.
@@ -54,6 +56,12 @@ func ValidateEnvironment(dirPath string) *ValidationResult {
 		return result
 	}
 
+	// ENV-020: archetype must be a valid value if present.
+	checkArchetype(envFile, doc.Environment, result)
+
+	// ENV-021, ENV-021b: era_span format and order if present.
+	checkEraSpan(envFile, doc.Environment, result)
+
 	// Load all referenced networks (ENV-003).
 	networkDocs := loadNetworkRefs(envFile, designRoot, doc.Networks, result)
 
@@ -62,7 +70,79 @@ func ValidateEnvironment(dirPath string) *ValidationResult {
 
 	// Check placements.
 	checkPlacements(envFile, doc, networkDocs, deviceDocs, result)
+
+	// Check boundaries (ENV-023 through ENV-030).
+	checkBoundaries(envFile, doc, result)
+
 	return result
+}
+
+// validArchetypes lists all valid archetype values (ADR-010 D1).
+var validArchetypes = map[string]bool{
+	"modern-segmented": true,
+	"legacy-flat":      true,
+	"hybrid":           true,
+}
+
+// eraSpanSingle matches a single-year era_span: "YYYY".
+var eraSpanSingle = regexp.MustCompile(`^\d{4}$`)
+
+// eraSpanRange matches a range era_span: "YYYY-YYYY".
+var eraSpanRange = regexp.MustCompile(`^(\d{4})-(\d{4})$`)
+
+// checkArchetype applies ENV-020: archetype must be one of the valid values if present.
+func checkArchetype(envFile string, env *EnvironmentDoc, r *ValidationResult) {
+	if env == nil || env.Archetype == "" {
+		return
+	}
+	if !validArchetypes[env.Archetype] {
+		r.Add(ValidationError{
+			File:  envFile,
+			Field: "environment.archetype",
+			Message: fmt.Sprintf(
+				"value %q is not valid; must be one of: modern-segmented, legacy-flat, hybrid (see ADR-010 D1)",
+				env.Archetype,
+			),
+			Severity: SeverityError, RuleID: "ENV-020",
+		})
+	}
+}
+
+// checkEraSpan applies ENV-021 (format warning) and ENV-021b (range order error).
+func checkEraSpan(envFile string, env *EnvironmentDoc, r *ValidationResult) {
+	if env == nil || env.EraSpan == "" {
+		return
+	}
+	span := env.EraSpan
+	if eraSpanSingle.MatchString(span) {
+		return // Single year -- valid format.
+	}
+	m := eraSpanRange.FindStringSubmatch(span)
+	if m == nil {
+		r.Add(ValidationError{
+			File:  envFile,
+			Field: "environment.era_span",
+			Message: fmt.Sprintf(
+				"value %q does not match expected format YYYY or YYYY-YYYY", span,
+			),
+			Severity: SeverityWarning, RuleID: "ENV-021",
+		})
+		return
+	}
+	// ENV-021b: start year must be <= end year.
+	start, _ := strconv.Atoi(m[1])
+	end, _ := strconv.Atoi(m[2])
+	if start > end {
+		r.Add(ValidationError{
+			File:  envFile,
+			Field: "environment.era_span",
+			Message: fmt.Sprintf(
+				"era_span %q is invalid: start year %d must be less than or equal to end year %d",
+				span, start, end,
+			),
+			Severity: SeverityError, RuleID: "ENV-021b",
+		})
+	}
 }
 
 // loadNetworkRefs loads and validates all network references in the environment.

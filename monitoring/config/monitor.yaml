@@ -54,3 +54,24 @@ environments:
         gateway: true
         scan_unit_ids: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 247]
         description: "ps-gw-01 (Moxa NPort 5150, serial-to-Ethernet)"
+
+  - name: "wastewater"
+    # Monitor reaches the plant-wastewater container via the ot-ww-flat network.
+    # plant-wastewater container IP: 192.168.10.10 (assigned in docker-compose.yml).
+    # All three wastewater Modbus endpoints are served by this container.
+    address: "192.168.10.10"
+    endpoints:
+      - port: 5062
+        unit_id: 1
+        description: "ww-plc-03 (CompactLogix L33ER, aeration blower control)"
+      - port: 5063
+        gateway: true
+        # Gateway port: scan unit IDs 1-10 to discover SLC-500 PLCs behind Moxa NPort.
+        # Unit ID 1 = ww-plc-01 (SLC-500, ww-influent), Unit ID 2 = ww-plc-02 (SLC-500, ww-effluent).
+        # Unit ID 3+ will find no response (no serial devices beyond 2 in this facility).
+        # [OT-REVIEW] Unit ID 247 is a simulator convention for gateway diagnostics.
+        scan_unit_ids: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 247]
+        description: "ww-gw-01 (Moxa NPort 5150, ww-serial-gateway, bridges SLC-500 PLCs)"
+      - port: 5064
+        unit_id: 1
+        description: "ww-modem-01 (Cradlepoint IBR600, vendor-remote-access cellular modem)"

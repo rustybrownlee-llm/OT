@@ -1,2 +1,10 @@
-# Environment template for this scenario
+# Environments for this scenario
+
+## Phases A-E
 environment: greenfield-water-mfg
+profile: water
+
+## Phase F (hybrid environment discovery)
+environment: brownfield-wastewater
+profile: wastewater
+ports: 5062-5064

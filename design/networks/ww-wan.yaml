@@ -1,0 +1,33 @@
+# ww-wan.yaml - Brownfield Wastewater Cellular WAN Uplink Network Atom
+# MONITORING BLIND SPOT -- this link is invisible to all on-premises tools:
+#   Traffic on this link is invisible to all on-premises monitoring tools.
+#   No SPAN port, no local packet capture, no IDS visibility.
+#   An attacker or vendor using this path creates traffic that bypasses all local
+#   detection entirely. This is a fundamentally different blind spot from the
+#   unmanaged switch on ww-flat: traffic on ww-flat at least exists on the local
+#   wire (even without a SPAN port). Traffic on this cellular WAN link exits the
+#   facility and traverses 4G/LTE carrier infrastructure before reaching the vendor
+#   cloud platform -- none of it is visible at the plant.
+# Physical vs. logical type: The physical layer is 4G/LTE cellular. The design layer
+# uses type "ethernet" because the Cradlepoint IBR600's LAN port presents standard
+# Ethernet/IP framing to connected devices. The cellular modem handles WAN transport
+# transparently. The schema models logical connectivity, not physical media.
+# Why /30 subnet? A /30 provides exactly 2 usable host addresses -- one for the
+# Cradlepoint LAN interface (192.168.10.x, on ww-flat) and one representing the
+# carrier-side endpoint. In practice the carrier assigns a dynamic WAN IP; the /30
+# is a simulation convenience to define the point-to-point boundary.
+# No SPAN: Cellular WAN circuits have no local switch infrastructure to mirror.
+# Monitoring this link requires out-of-band carrier flow telemetry or endpoint logging
+# on the Cradlepoint -- neither of which exists in the default configuration.
+schema_version: "0.1"
+
+network:
+  id: "ww-wan"
+  name: "Wastewater Cellular WAN Uplink"
+  type: "ethernet"             # Logical type: ethernet (physical layer: 4G/LTE cellular)
+  description: "2022 cellular WAN uplink via Cradlepoint IBR600 - invisible to all on-premises monitoring"
+
+properties:
+  subnet: "10.30.40.0/30"
+  managed_switch: false        # No local switch -- direct WAN interface (cellular modem)
+  span_capable: false          # No on-premises monitoring tap -- cellular traffic bypasses all local detection

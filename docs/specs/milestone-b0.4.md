@@ -195,11 +195,11 @@ The `ot-design validate` CLI must be extended to:
 
 | # | SOW | Title | Dependencies | Status | Notes |
 |---|-----|-------|-------------|--------|-------|
-| 1 | SOW-016.0 | Environment Archetype Schema Extensions | None | Not Started | Add archetype, era_span, installed, boundaries to schema. Update validation CLI. Retroactively tag existing environments. |
-| 2 | SOW-017.0 | Brownfield Wastewater Device and Network Atoms | SOW-016.0 | Not Started | New device atoms as needed (possibly MicroLogix 1100 or reuse existing). New network atoms for hybrid topology (ww-flat, ww-serial-bus, ww-level3, ww-wan). Facility narrative document. |
-| 3 | SOW-018.0 | Brownfield Wastewater Environment Definition | SOW-017.0 | Not Started | Compose the Frankenstein hybrid from atoms. Docker Compose profile additions. Process model variants. Validation pass. **This is the composability proof.** |
-| 4 | SOW-019.0 | Adaptive Topology Visualization | SOW-016.0, SOW-018.0 | Not Started | Dashboard topology page. Server-side layout engine. Archetype-driven rendering. Era markers. Boundary state visualization. HTMX environment switching. |
-| 5 | SOW-020.0 | Hybrid Environment Scenarios | SOW-018.0, SOW-019.0 | Not Started | Scenario content for the wastewater environment. Discovery scenario variant highlighting hybrid challenges. Assessment scenario focused on partial-segmentation blind spots. Extend existing Scenarios 01-02 or create new ones. |
+| 1 | SOW-016.0 | Environment Archetype Schema Extensions | None | Complete | Add archetype, era_span, installed, boundaries to schema. Update validation CLI. Retroactively tag existing environments. |
+| 2 | SOW-017.0 | Brownfield Wastewater Device and Network Atoms | SOW-016.0 | Complete | 4 network atoms (ww-flat, ww-serial-bus, ww-level3, ww-wan), 2 SLC-500 variants (ww-influent, ww-effluent), 1 CompactLogix variant (ww-aeration), 1 Moxa variant (ww-serial-gateway), new Cradlepoint IBR600 device atom, facility narrative. All pass ot-design validate. |
+| 3 | SOW-018.0 | Brownfield Wastewater Environment Definition | SOW-017.0 | Complete | Compose the Frankenstein hybrid from atoms. Docker Compose profile additions. Process model variants. Validation pass. **This is the composability proof.** |
+| 4 | SOW-019.0 | Adaptive Topology Visualization | SOW-016.0, SOW-018.0 | Complete | Dashboard topology page. Server-side layout engine. Archetype-driven rendering. Era markers. Boundary state visualization. HTMX environment switching. |
+| 5 | SOW-020.0 | Hybrid Environment Scenarios | SOW-018.0, SOW-019.0 | Complete | Scenario content for the wastewater environment. Discovery scenario variant highlighting hybrid challenges. Assessment scenario focused on partial-segmentation blind spots. Extended Scenarios 01-02 with Phase F and Phase E respectively. |
 
 ### Dependency Graph
 

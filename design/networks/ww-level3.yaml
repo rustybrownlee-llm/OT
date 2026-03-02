@@ -1,0 +1,26 @@
+# ww-level3.yaml - Brownfield Wastewater Level 3 Compliance VLAN Network Atom
+# Added in 2018 as the primary output of a state compliance audit response.
+# Managed Cisco Catalyst 2960 (or equivalent) with SPAN capability enables passive
+# monitoring on this segment -- the only segment in the facility with this capability.
+# VLAN 30 isolates the SCADA server from the Level 1 flat segment (ww-flat).
+# Teaching point: The managed switch and VLAN create a real, enforced boundary for the
+# SCADA server. However, everything else -- SLC-500s, CompactLogix, Moxa gateway, and
+# the Cradlepoint cellular modem -- remains on the flat Level 1 segment. The audit
+# checkbox was checked, but the actual attack surface reduction is minimal. An attacker
+# on ww-flat can reach 5 of 6 simulated devices; only the SCADA server is protected.
+# No simulated devices are placed on this segment in SOW-018.0. The SCADA server is
+# out of scope per TD-030 (no wastewater HMI). This atom exists to express the enforced
+# boundary state in the environment topology (SOW-019.0 visualization).
+schema_version: "0.1"
+
+network:
+  id: "ww-level3"
+  name: "Wastewater Level 3 Compliance VLAN"
+  type: "ethernet"             # ethernet | serial-rs485 | serial-rs232
+  description: "2018 audit-response VLAN 30 for SCADA server isolation - managed switch, SPAN capable"
+
+properties:
+  subnet: "10.30.30.0/24"
+  vlan: 30
+  managed_switch: true         # Cisco Catalyst 2960 or equivalent -- supports SPAN port
+  span_capable: true           # Dragos or Zeek can observe this segment

@@ -152,3 +152,66 @@ func (d *Dashboard) designEnvDetailHandler(w http.ResponseWriter, r *http.Reques
 	}
 	d.render(w, "design_env_detail.html", data)
 }
+
+// topologyHandler renders the full topology page with a default or first environment.
+// GET /topology
+func (d *Dashboard) topologyHandler(w http.ResponseWriter, r *http.Request) {
+	envID := defaultEnvID(d.lib)
+	data := d.buildTopologyPageData(envID)
+	d.render(w, "topology.html", data)
+}
+
+// topologyEnvHandler renders the topology page for a specific environment.
+// GET /topology/{env-id}
+func (d *Dashboard) topologyEnvHandler(w http.ResponseWriter, r *http.Request) {
+	envID := chi.URLParam(r, "env-id")
+	if _, ok := d.lib.Environments[envID]; !ok {
+		http.NotFound(w, r)
+		return
+	}
+	data := d.buildTopologyPageData(envID)
+	d.render(w, "topology.html", data)
+}
+
+// topologyPartialHandler returns the HTMX topology-view partial for one environment.
+// GET /partials/topology-view/{env-id}
+func (d *Dashboard) topologyPartialHandler(w http.ResponseWriter, r *http.Request) {
+	envID := chi.URLParam(r, "env-id")
+	def := d.lib.Environments[envID]
+	td := BuildTopologyData(def, d.lib)
+	if td == nil {
+		http.NotFound(w, r)
+		return
+	}
+	d.renderPartial(w, "topology_view_content", td)
+}
+
+// buildTopologyPageData assembles the topologyPageData for a given environment ID.
+func (d *Dashboard) buildTopologyPageData(envID string) topologyPageData {
+	def := d.lib.Environments[envID]
+	td := BuildTopologyData(def, d.lib)
+	if td == nil {
+		td = &TopologyData{AllEnvs: buildEnvSummaries(d.lib)}
+	}
+	return topologyPageData{
+		Title:      "Topology",
+		ActivePage: "topology",
+		Topology:   td,
+	}
+}
+
+// defaultEnvID returns the first environment ID alphabetically, preferring
+// "brownfield-wastewater" if present.
+func defaultEnvID(lib *DesignLibrary) string {
+	if lib == nil {
+		return ""
+	}
+	if _, ok := lib.Environments["brownfield-wastewater"]; ok {
+		return "brownfield-wastewater"
+	}
+	ids := sortedKeys(lib.Environments)
+	if len(ids) == 0 {
+		return ""
+	}
+	return ids[0]
+}

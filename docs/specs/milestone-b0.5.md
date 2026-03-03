@@ -275,12 +275,12 @@ The wastewater view highlights:
 
 | # | SOW | Title | Dependencies | Status | Notes |
 |---|-----|-------|-------------|--------|-------|
-| 1 | SOW-021.0 | Process Schematic Schema and Validation | None | Planned | Define process.yaml schema, ISA-5.1 tag convention, validation rules. Extend ot-design validate. |
-| 2 | SOW-022.0 | SVG Symbol Library and Layout Engine | SOW-021.0 | Planned | Go template partials for equipment symbols. Layout engine computes positions from process.yaml. HTMX live value update pattern. |
-| 3 | SOW-023.0 | Water Treatment Process Schematic | SOW-021.0 | Planned | Author process.yaml for greenfield-water-mfg. Map all intake/treatment/distribution instruments to registers. Verify scaling. |
-| 4 | SOW-024.0 | Pipeline and Wastewater Process Schematics | SOW-021.0, SOW-023.0 | Planned | Author process.yaml for pipeline-monitoring and brownfield-wastewater. Pipeline covers compression/metering/analysis. Wastewater includes era markers and Cradlepoint WAN indicator. |
-| 5 | SOW-025.0 | Dashboard Process View Integration | SOW-022.0, SOW-023.0 | Planned | New /process routes, environment selector, navigation links from asset detail and topology pages. Register value scaling and live HTMX updates. |
-| 6 | SOW-026.0 | Process View Scenario Extensions | SOW-025.0, SOW-024.0 | Planned | Extend Scenarios 01 and 02 with process view walkthroughs. New Phase G showing how process context changes the discovery and assessment experience. |
+| 1 | SOW-021.0 | Process Schematic Schema and Validation | None | Complete | Define process.yaml schema, ISA-5.1 tag convention, validation rules. Extend ot-design validate. |
+| 2 | SOW-022.0 | SVG Symbol Library and Layout Engine | SOW-021.0 | Complete | Go template partials for equipment symbols. Layout engine computes positions from process.yaml. HTMX live value update pattern. |
+| 3 | SOW-023.0 | Water Treatment Process Schematic | SOW-021.0 | Complete | Author process.yaml for greenfield-water-mfg. Map all intake/treatment/distribution instruments to registers. Verify scaling. |
+| 4 | SOW-024.0 | Pipeline and Wastewater Process Schematics | SOW-021.0, SOW-023.0 | Complete | Author process.yaml for pipeline-monitoring and brownfield-wastewater. Pipeline covers compression/metering/analysis. Wastewater includes era markers and Cradlepoint WAN indicator. |
+| 5 | SOW-025.0 | Dashboard Process View Integration | SOW-022.0, SOW-023.0 | Complete | New /process routes, environment selector, navigation links from asset detail and topology pages. Register value scaling and live HTMX updates. |
+| 6 | SOW-026.0 | Process View Scenario Extensions | SOW-025.0, SOW-024.0 | Complete | Extend Scenarios 01 and 02 with process view walkthroughs. New Phase G showing how process context changes the discovery and assessment experience. |
 
 ### Dependency Graph
 

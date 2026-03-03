@@ -24,6 +24,10 @@ type Config struct {
 	BaselineLearningCycles int `yaml:"baseline_learning_cycles"` // default: 150
 	RingBufferSize         int `yaml:"ring_buffer_size"`         // default: 300
 	MaxAlerts              int `yaml:"max_alerts"`               // default: 1000
+
+	// Event store configuration (SOW-027.0).
+	EventDBPath        string `yaml:"event_db_path"`        // default: "data/events.db"
+	EventRetentionDays int    `yaml:"event_retention_days"` // default: 7, minimum: 1
 }
 
 // Environment groups a set of Modbus endpoints behind a single IP address.
@@ -59,6 +63,8 @@ type rawConfig struct {
 	BaselineLearningCycles int           `yaml:"baseline_learning_cycles"`
 	RingBufferSize         int           `yaml:"ring_buffer_size"`
 	MaxAlerts              int           `yaml:"max_alerts"`
+	EventDBPath            string        `yaml:"event_db_path"`
+	EventRetentionDays     *int          `yaml:"event_retention_days"`
 }
 
 // defaults applied when config fields are zero-valued.
@@ -74,6 +80,11 @@ const (
 	defaultBaselineLearningCycles = 150
 	defaultRingBufferSize         = 300
 	defaultMaxAlerts              = 1000
+
+	// Event store defaults (SOW-027.0).
+	defaultEventDBPath        = "data/events.db"
+	defaultEventRetentionDays = 7
+	minEventRetentionDays     = 1
 )
 
 // PROTOTYPE-DEBT: [td-config-028] monitor.yaml duplicates endpoint knowledge that also
@@ -115,13 +126,17 @@ func fromRaw(raw rawConfig) *Config {
 		BaselineLearningCycles: raw.BaselineLearningCycles,
 		RingBufferSize:         raw.RingBufferSize,
 		MaxAlerts:              raw.MaxAlerts,
+		EventDBPath:            raw.EventDBPath,
 	}
 
-	// Preserve the explicitly-set poll interval; do NOT apply default yet.
-	// Validation will check the value; defaults are applied after validation
+	// Preserve explicitly-set values; do NOT apply defaults yet.
+	// Validation checks these values; defaults are applied after validation
 	// only for fields that were absent from the YAML (nil pointer).
 	if raw.PollIntervalSeconds != nil {
 		cfg.PollIntervalSeconds = *raw.PollIntervalSeconds
+	}
+	if raw.EventRetentionDays != nil {
+		cfg.EventRetentionDays = *raw.EventRetentionDays
 	}
 
 	applyDefaults(cfg, raw)
@@ -155,6 +170,12 @@ func applyDefaults(cfg *Config, raw rawConfig) {
 	if cfg.MaxAlerts <= 0 {
 		cfg.MaxAlerts = defaultMaxAlerts
 	}
+	if cfg.EventDBPath == "" {
+		cfg.EventDBPath = defaultEventDBPath
+	}
+	if raw.EventRetentionDays == nil {
+		cfg.EventRetentionDays = defaultEventRetentionDays
+	}
 }
 
 // Validate checks that required fields are present and values are in range.
@@ -167,6 +188,11 @@ func (cfg *Config) Validate() error {
 	if cfg.PollIntervalSeconds < minPollIntervalSeconds {
 		return fmt.Errorf("poll_interval_seconds must be >= %d, got %d",
 			minPollIntervalSeconds, cfg.PollIntervalSeconds)
+	}
+
+	if cfg.EventRetentionDays < minEventRetentionDays {
+		return fmt.Errorf("event_retention_days must be >= %d, got %d",
+			minEventRetentionDays, cfg.EventRetentionDays)
 	}
 
 	for i, env := range cfg.Environments {

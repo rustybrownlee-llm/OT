@@ -227,6 +227,86 @@ func TestParse_BaselineFieldsAbsent(t *testing.T) {
 	}
 }
 
+// TestParse_EventStoreFieldsPresent verifies that explicit event store fields
+// are parsed and honored correctly when present in the YAML.
+func TestParse_EventStoreFieldsPresent(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "event-store.yaml")
+	content := `environments:
+  - name: "test"
+    address: "127.0.0.1"
+    endpoints:
+      - port: 5020
+        unit_id: 1
+event_db_path: "/tmp/custom-events.db"
+event_retention_days: 14
+`
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Parse(tmp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.EventDBPath != "/tmp/custom-events.db" {
+		t.Errorf("EventDBPath: got %q, want %q", cfg.EventDBPath, "/tmp/custom-events.db")
+	}
+	if cfg.EventRetentionDays != 14 {
+		t.Errorf("EventRetentionDays: got %d, want 14", cfg.EventRetentionDays)
+	}
+}
+
+// TestParse_EventStoreDefaults verifies that default values are applied when
+// event store fields are absent from the YAML.
+func TestParse_EventStoreDefaults(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "event-defaults.yaml")
+	content := `environments:
+  - name: "test"
+    address: "127.0.0.1"
+    endpoints:
+      - port: 5020
+        unit_id: 1
+`
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Parse(tmp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.EventDBPath != "data/events.db" {
+		t.Errorf("default EventDBPath: got %q, want %q", cfg.EventDBPath, "data/events.db")
+	}
+	if cfg.EventRetentionDays != 7 {
+		t.Errorf("default EventRetentionDays: got %d, want 7", cfg.EventRetentionDays)
+	}
+}
+
+// TestParse_InvalidRetentionDays verifies that event_retention_days: 0 is
+// rejected by validation because the minimum is 1.
+func TestParse_InvalidRetentionDays(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "bad-retention.yaml")
+	content := `environments:
+  - name: "test"
+    address: "127.0.0.1"
+    endpoints:
+      - port: 5020
+        unit_id: 1
+event_retention_days: 0
+`
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := config.Parse(tmp)
+	if err == nil {
+		t.Fatal("expected error for event_retention_days=0, got nil")
+	}
+}
+
 // TestValidate_BaselineDefaultsForNegativeValues verifies that Validate applies
 // defaults for zero or negative baseline configuration values.
 func TestValidate_BaselineDefaultsForNegativeValues(t *testing.T) {

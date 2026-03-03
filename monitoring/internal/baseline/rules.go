@@ -21,14 +21,20 @@ type Rule struct {
 	Severity string
 }
 
-// Rules is the ordered list of anomaly detection rules. All five rules are
-// evaluated on every established device after each polling cycle.
+// Rules is the ordered list of anomaly detection rules. The first five are
+// snapshot-based register/coil rules. The last four are event-driven
+// protocol-metadata rules added in SOW-032.0.
 var Rules = []Rule{
 	{ID: "value_out_of_range", Severity: "warning"},
 	{ID: "unexpected_write", Severity: "high"},
 	{ID: "new_device", Severity: "critical"},
 	{ID: "device_offline", Severity: "high"},
 	{ID: "response_time_anomaly", Severity: "warning"},
+	// Event-driven protocol-metadata rules (SOW-032.0).
+	{ID: "write_to_readonly", Severity: "critical"},
+	{ID: "new_source", Severity: "high"},
+	{ID: "fc_anomaly", Severity: "high"},
+	{ID: "poll_gap", Severity: "warning"},
 }
 
 // evaluateValueOutOfRange checks each holding register against its baseline.

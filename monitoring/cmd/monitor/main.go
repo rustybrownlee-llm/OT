@@ -254,7 +254,7 @@ func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride stri
 	// Start the polling loop in a background goroutine.
 	p := poller.New(cfg, inv, state)
 	p.SetCycleHook(engine.RecordCycle)
-	p.SetEventHook(makeEventHook(store, emitter))
+	p.SetEventHook(makeEventHook(store, emitter, engine))
 
 	go func() {
 		if err := p.Run(ctx); err != nil {
@@ -304,7 +304,7 @@ func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride stri
 }
 
 // makeEventHook constructs the EventHook function that is called by the poller
-// for each batch of Modbus transaction events. The hook chains two operations:
+// for each batch of Modbus transaction events. The hook chains three operations:
 //
 //  1. Primary: persist events to the SQLite event store (InsertBatch). This is
 //     the authoritative record; errors are logged at Warn but never block polling.
@@ -312,7 +312,11 @@ func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride stri
 //  2. Secondary: forward events to the syslog emitter when enabled. Syslog
 //     errors are logged at Warn and do not affect event store insertion. The
 //     emitter parameter may be nil when syslog is disabled.
-func makeEventHook(store *eventstore.Store, emitter *internalsyslog.Emitter) func([]*eventstore.TransactionEvent) {
+//
+//  3. Tertiary: feed the baseline engine for event-driven anomaly detection
+//     (write_to_readonly, new_source, fc_anomaly, poll_gap). Always called;
+//     RecordEvents is a no-op on nil or empty slices.
+func makeEventHook(store *eventstore.Store, emitter *internalsyslog.Emitter, engine *baseline.Engine) func([]*eventstore.TransactionEvent) {
 	return func(events []*eventstore.TransactionEvent) {
 		// Primary: persist to event store.
 		// [OT-REVIEW] FR-9: Availability over completeness. InsertBatch errors are
@@ -326,6 +330,8 @@ func makeEventHook(store *eventstore.Store, emitter *internalsyslog.Emitter) fun
 				slog.Warn("syslog send failed", "count", len(events), "error", err)
 			}
 		}
+		// Tertiary: feed baseline engine for event-driven anomaly detection.
+		engine.RecordEvents(events)
 	}
 }
 

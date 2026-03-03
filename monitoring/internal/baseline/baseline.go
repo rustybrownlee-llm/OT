@@ -153,6 +153,18 @@ type CoilLearning struct {
 	MaxToggleFrequency float64 // max toggles per polling window during learning
 }
 
+// EventBaseline holds protocol-metadata baselines learned from TransactionEvents.
+// Populated during the learning period, frozen at transition to established.
+type EventBaseline struct {
+	ObservedFCs        map[uint8]bool   // function codes seen during learning
+	ObservedSrcs       map[string]bool  // source addresses seen during learning
+	IsWriteTarget      bool             // true if any write FC was observed during learning
+	PollIntervals      []time.Duration  // intervals between consecutive events (nil after finalization)
+	PollIntervalMean   time.Duration
+	PollIntervalStdDev time.Duration
+	LastEventTime      time.Time        // timestamp of most recent event (for interval calc)
+}
+
 // DeviceBaseline holds the baseline state for one device.
 type DeviceBaseline struct {
 	DeviceID        string
@@ -166,6 +178,8 @@ type DeviceBaseline struct {
 	ResponseTimeStdDev  float64
 	responseTimeM2      float64
 	responseTimeSamples int
+	// Event-driven protocol metadata baseline (SOW-032.0).
+	Event EventBaseline
 }
 
 // Engine orchestrates baseline learning and anomaly detection across all devices.
@@ -273,6 +287,10 @@ func (e *Engine) getOrCreateBaseline(snap *DeviceSnapshot) *DeviceBaseline {
 			DeviceID:        snap.DeviceID,
 			Status:          StatusLearning,
 			RequiredSamples: e.learningCycles,
+			Event: EventBaseline{
+				ObservedFCs:  make(map[uint8]bool),
+				ObservedSrcs: make(map[string]bool),
+			},
 		}
 		e.baselines[snap.DeviceID] = db
 	}
@@ -398,6 +416,9 @@ func (e *Engine) finaliseBaseline(deviceID string, db *DeviceBaseline) {
 	db.Status = StatusEstablished
 	delete(e.sampleAccum, deviceID)
 
+	// Finalise the event baseline: compute interval statistics and release memory.
+	finaliseEventBaseline(&db.Event)
+
 	slog.Info("baseline established",
 		"device", deviceID,
 		"samples", db.SampleCount,
@@ -420,6 +441,7 @@ func (e *Engine) GetBaselines() map[string]*DeviceBaseline {
 		coilCopy := make([]CoilLearning, len(db.CoilStats))
 		copy(coilCopy, db.CoilStats)
 		cp.CoilStats = coilCopy
+		cp.Event = copyEventBaseline(&db.Event)
 		out[id] = &cp
 	}
 	return out
@@ -439,5 +461,33 @@ func (e *Engine) GetDeviceBaseline(deviceID string) (*DeviceBaseline, bool) {
 	regCopy := make([]RegisterBaseline, len(db.RegisterStats))
 	copy(regCopy, db.RegisterStats)
 	cp.RegisterStats = regCopy
+	coilCopy := make([]CoilLearning, len(db.CoilStats))
+	copy(coilCopy, db.CoilStats)
+	cp.CoilStats = coilCopy
+	cp.Event = copyEventBaseline(&db.Event)
 	return &cp, true
+}
+
+// copyEventBaseline returns a deep copy of an EventBaseline, duplicating both
+// the ObservedFCs and ObservedSrcs maps so the caller cannot mutate engine state.
+func copyEventBaseline(eb *EventBaseline) EventBaseline {
+	cp := EventBaseline{
+		IsWriteTarget:      eb.IsWriteTarget,
+		PollIntervalMean:   eb.PollIntervalMean,
+		PollIntervalStdDev: eb.PollIntervalStdDev,
+		LastEventTime:      eb.LastEventTime,
+	}
+	if eb.ObservedFCs != nil {
+		cp.ObservedFCs = make(map[uint8]bool, len(eb.ObservedFCs))
+		for k, v := range eb.ObservedFCs {
+			cp.ObservedFCs[k] = v
+		}
+	}
+	if eb.ObservedSrcs != nil {
+		cp.ObservedSrcs = make(map[string]bool, len(eb.ObservedSrcs))
+		for k, v := range eb.ObservedSrcs {
+			cp.ObservedSrcs[k] = v
+		}
+	}
+	return cp
 }

@@ -139,8 +139,8 @@ At 2-second polling with 12 devices, ~6 events/second = ~520K events/day = ~3.6M
 CEF:0|OTSimulator|Monitor|0.6|{func_code}|{func_name}|{severity}|
   src={src_addr} dst={dst_addr}
   cs1={func_name} cs1Label=FunctionCode
-  cn1={reg_start} cn1Label=RegisterStart
-  cn2={reg_count} cn2Label=RegisterCount
+  cn1={addr_start} cn1Label=AddressStart
+  cn2={addr_count} cn2Label=AddressCount
   cs2={device_id} cs2Label=DeviceID
   cs3={env_id} cs3Label=Environment
   rt={timestamp_ms}
@@ -149,6 +149,7 @@ CEF:0|OTSimulator|Monitor|0.6|{func_code}|{func_name}|{severity}|
 
 Severity mapping:
 - Write operations: 7 (High)
+- Diagnostic operations (FC 43): 3 (Medium-Low)
 - Read failures (exception codes): 5 (Medium)
 - Read successes: 1 (Low/Informational)
 
@@ -158,7 +159,7 @@ Severity mapping:
 # monitor.yaml additions
 syslog:
   enabled: false              # default off
-  target: "udp://localhost:514"  # syslog receiver address
+  target: "localhost:514"     # syslog receiver address (host:port, not URL)
   protocol: "udp"            # udp or tcp
   facility: "local0"         # syslog facility
   format: "cef"              # cef (only format for Beta 0.6)
@@ -218,10 +219,10 @@ The existing register value baseline (mean/stddev/min/max) is unchanged. The new
 
 | Rule ID | Name | Trigger | Severity |
 |---------|------|---------|----------|
-| `write-to-readonly` | Write to Read-Only Device | FC 5/6/15/16 to a device that received only read function codes during learning | Critical |
-| `new-source` | Unauthorized Communication Source | Transaction from a source address not seen during learning period | High |
-| `fc-anomaly` | Unusual Function Code | Function code not observed during learning period for this device | High |
-| `poll-gap` | Polling Interval Anomaly | Time since last transaction exceeds 3x the learned mean interval | Warning |
+| `write_to_readonly` | Write to Read-Only Device | FC 5/6/15/16 to a device that received only read function codes during learning | Critical |
+| `new_source` | Unauthorized Communication Source | Transaction from a source address not seen during learning period | High |
+| `fc_anomaly` | Unusual Function Code | Function code not observed during learning period for this device | High |
+| `poll_gap` | Polling Interval Anomaly | Time since last transaction exceeds 3x the learned mean interval | Warning |
 
 ## Dashboard Pages
 
@@ -260,11 +261,11 @@ The existing register value baseline (mean/stddev/min/max) is unchanged. The new
 |---|-----|-------|-------------|--------|-------|
 | 1 | SOW-027.0 | Transaction Event Model and Store | None | Complete | Define TransactionEvent type, SQLite schema, event store package with insert/query/prune, retention configuration |
 | 2 | SOW-028.0 | Poller Transaction Logging | SOW-027.0 | Complete | Instrument the poller to emit TransactionEvent for every Modbus read/write cycle; wire event store into monitor startup |
-| 3 | SOW-029.0 | Transaction Log Dashboard Page | SOW-028.0 | Planned | /events route with filterable HTMX table, event detail view, write-only toggle, nav link |
-| 4 | SOW-030.0 | Communication Graph and Function Code Histograms | SOW-028.0 | Planned | /comms route with device matrix, per-device FC distribution on asset detail page, nav link |
-| 5 | SOW-031.0 | CEF Syslog Forwarding | SOW-027.0 | Complete | Syslog emitter package, CEF formatter, configuration in monitor.yaml, optional UDP/TCP output |
-| 6 | SOW-032.0 | Event-Driven Baseline Extensions | SOW-028.0 | Planned | Function code baseline, source baseline, polling interval baseline; write-to-readonly, new-source, fc-anomaly, poll-gap alert rules |
-| 7 | SOW-033.0 | Scenario 04 Phase A: Deploy Monitoring | SOW-029.0, SOW-030.0, SOW-032.0 | Planned | Guided exercise using transaction log, communication graph, and new alert rules to build a traffic baseline and detect unauthorized writes |
+| 3 | SOW-029.0 | Transaction Log Dashboard Page | SOW-028.0 | Complete | /events route with filterable HTMX table, FC/device dropdowns, write-only toggle, 4x/0x address notation |
+| 4 | SOW-030.0 | Communication Graph and Function Code Histograms | SOW-028.0 | Complete | /comms route with device matrix, per-device FC distribution histogram, DistinctFCs per device |
+| 5 | SOW-031.0 | CEF Syslog Forwarding | SOW-027.0 | Complete | Syslog emitter package, CEF formatter, 4-tier severity, UDP/TCP, makeEventHook helper |
+| 6 | SOW-032.0 | Event-Driven Baseline Extensions | SOW-028.0 | In Progress | write_to_readonly, new_source, fc_anomaly, poll_gap alert rules; RecordEvents method |
+| 7 | SOW-033.0 | Scenario 04 Phase A: Deploy Monitoring | SOW-029.0, SOW-030.0, SOW-032.0 | In Progress | Guided exercise: deploy, baseline, analyze, SIEM forward, detect |
 
 ### Dependency Graph
 
@@ -282,7 +283,7 @@ SOW-027.0 (Event Model + Store) ──────> SOW-028.0 (Poller Logging)
   └────────────────────────────────────────> SOW-033.0 (Scenario 04A)
 ```
 
-Note: SOW-031.0 (syslog) depends only on the event model (SOW-027.0), not on the poller integration. It reads from the event store. This allows syslog development to proceed in parallel with dashboard work.
+Note: SOW-031.0 (syslog) depends on the event model (SOW-027.0) and the EventHook pipeline (SOW-028.0). It chains into the EventHook alongside store.InsertBatch() for synchronous forwarding (not polling the store). This allows syslog development to proceed in parallel with dashboard work.
 
 ## Configuration Additions
 

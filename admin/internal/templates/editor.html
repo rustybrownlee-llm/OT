@@ -1,0 +1,271 @@
+{{define "content"}}
+{{/* PROTOTYPE-DEBT: [td-admin-120] CodeMirror JavaScript is inline in the Go template. */}}
+{{/* PROTOTYPE-DEBT: [td-admin-123] beforeunload does not intercept HTMX same-origin navigation. */}}
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h4 class="mb-0">YAML Editor</h4>
+    <span class="text-muted small">design/</span>
+</div>
+
+<div class="editor-layout border rounded" style="height: calc(100vh - 200px);">
+
+    <!-- File tree sidebar -->
+    <div class="editor-filetree">
+        <ul class="filetree-list">
+        {{range .FileTree}}
+            {{template "filetreeNode" .}}
+        {{end}}
+        </ul>
+    </div>
+
+    <!-- Editor + toolbar + validation panel -->
+    <div class="editor-main">
+
+        <!-- Toolbar -->
+        <div class="editor-toolbar">
+            <span class="text-muted font-monospace small" id="editor-filename">
+                {{if .FilePath}}{{.FilePath}}{{else}}No file open{{end}}
+            </span>
+            {{if .SchemaType}}
+            <span class="badge bg-secondary ms-1">{{.SchemaType}}</span>
+            {{end}}
+            <div class="ms-auto d-flex gap-2 align-items-center">
+                <button id="btn-validate" class="btn btn-sm btn-outline-secondary"
+                        onclick="editorValidate()" {{if not .FilePath}}disabled{{end}}>
+                    Validate
+                </button>
+                <button id="btn-save" class="btn btn-sm btn-primary"
+                        onclick="editorSave()" {{if not .FilePath}}disabled{{end}}>
+                    Save
+                </button>
+            </div>
+        </div>
+
+        <!-- CodeMirror container -->
+        <div class="editor-cm-wrapper">
+            <div id="cm-editor" style="height: 100%;"></div>
+        </div>
+
+        <!-- Validation results panel -->
+        <div class="editor-validation p-2">
+            <div id="validation-panel">
+                <p class="text-muted small mb-0">No validation results. Click Validate to check this file.</p>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script type="module">
+import { EditorView, lineNumbers, highlightActiveLine, drawSelection } from "@codemirror/view";
+import { EditorState } from "@codemirror/state";
+import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { yaml } from "@codemirror/lang-yaml";
+import { lintGutter, linter, setDiagnostics } from "@codemirror/lint";
+
+const FILE_PATH = "{{.FilePath}}";
+
+const extensions = [
+    lineNumbers(),
+    highlightActiveLine(),
+    drawSelection(),
+    bracketMatching(),
+    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+    yaml(),
+    lintGutter(),
+    linter(() => [], { delay: 0 }),
+    EditorView.lineWrapping,
+];
+
+const startState = EditorState.create({ doc: "", extensions });
+const view = new EditorView({ state: startState, parent: document.getElementById("cm-editor") });
+
+if (FILE_PATH) {
+    fetch("/api/design/file?path=" + encodeURIComponent(FILE_PATH))
+        .then(r => {
+            if (!r.ok) throw new Error("Load failed: " + r.status);
+            return r.text();
+        })
+        .then(text => {
+            view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+        })
+        .catch(err => showValidationError("Could not load file: " + err.message));
+}
+
+let dirty = false;
+view.dom.addEventListener("keydown", () => { dirty = true; });
+window.addEventListener("beforeunload", e => {
+    if (dirty) { e.preventDefault(); e.returnValue = ""; }
+});
+
+window.editorValidate = async function() {
+    if (!FILE_PATH) return;
+    const btn = document.getElementById("btn-validate");
+    btn.disabled = true;
+    btn.textContent = "Validating...";
+    try {
+        const resp = await fetch("/api/design/validate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: FILE_PATH, content: view.state.doc.toString() }),
+        });
+        const data = await resp.json();
+        applyValidationResult(data);
+    } catch(err) {
+        showValidationError("Validate request failed: " + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Validate";
+    }
+};
+
+window.editorSave = async function() {
+    if (!FILE_PATH) return;
+    const btn = document.getElementById("btn-save");
+    btn.disabled = true;
+    btn.textContent = "Saving...";
+    try {
+        const resp = await fetch("/api/design/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: FILE_PATH, content: view.state.doc.toString() }),
+        });
+        const data = await resp.json();
+        if (data.saved) {
+            dirty = false;
+            showSaveSuccess(btn);
+            applyValidationResult({ valid: true });
+        } else {
+            showSaveFailure(btn);
+            applyValidationResult({ valid: false, errors: data.errors });
+        }
+    } catch(err) {
+        showValidationError("Save request failed: " + err.message);
+        showSaveFailure(btn);
+    } finally {
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = "Save";
+            btn.classList.remove("btn-success", "btn-danger");
+            btn.classList.add("btn-primary");
+        }, 2000);
+    }
+};
+
+function applyValidationResult(data) {
+    if (data.valid) {
+        view.dispatch(setDiagnostics(view.state, []));
+        document.getElementById("validation-panel").innerHTML =
+            '<div class="alert alert-success py-1 mb-0 small">Validation passed. No schema errors found.</div>';
+        return;
+    }
+    const errors = data.errors || [];
+    const diagnostics = errors
+        .filter(e => e.line > 0)
+        .map(e => {
+            const lineIdx = Math.min(e.line, view.state.doc.lines);
+            const line = view.state.doc.line(lineIdx);
+            return { from: line.from, to: line.to, severity: "error", message: e.message };
+        });
+    view.dispatch(setDiagnostics(view.state, diagnostics));
+    renderErrorTable(errors);
+}
+
+function renderErrorTable(errors) {
+    const panel = document.getElementById("validation-panel");
+    let html = '<div class="d-flex align-items-center gap-2 mb-1">'
+        + '<span class="badge bg-danger">' + errors.length
+        + ' error' + (errors.length !== 1 ? 's' : '') + ' found</span></div>'
+        + '<table class="table table-sm table-bordered mb-0" style="font-size:0.8rem;">'
+        + '<thead class="table-light">'
+        + '<tr><th style="width:60px">Line</th><th style="width:35%">Field</th><th>Message</th></tr>'
+        + '</thead><tbody>';
+    for (const e of errors) {
+        const lineNum = e.line > 0 ? e.line : '-';
+        const clickAttr = e.line > 0
+            ? ' style="cursor:pointer;text-decoration:underline;" onclick="scrollToLine(' + e.line + ')"'
+            : '';
+        html += '<tr class="table-danger">'
+            + '<td' + clickAttr + '>' + lineNum + '</td>'
+            + '<td class="font-monospace">' + escHtml(e.path || '') + '</td>'
+            + '<td>' + escHtml(e.message) + '</td>'
+            + '</tr>';
+    }
+    html += '</tbody></table>';
+    panel.innerHTML = html;
+}
+
+window.scrollToLine = function(lineNum) {
+    if (lineNum < 1 || lineNum > view.state.doc.lines) return;
+    const line = view.state.doc.line(lineNum);
+    view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
+    view.focus();
+};
+
+function showSaveSuccess(btn) {
+    btn.textContent = "Saved";
+    btn.classList.remove("btn-primary", "btn-danger");
+    btn.classList.add("btn-success");
+}
+
+function showSaveFailure(btn) {
+    btn.textContent = "Save Failed";
+    btn.classList.remove("btn-primary", "btn-success");
+    btn.classList.add("btn-danger");
+}
+
+function showValidationError(msg) {
+    document.getElementById("validation-panel").innerHTML =
+        '<div class="alert alert-warning py-1 mb-0 small">' + escHtml(msg) + '</div>';
+}
+
+function escHtml(str) {
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+</script>
+
+<script>
+// toggleDir collapses/expands a file tree directory without a server round-trip.
+function toggleDir(el) {
+    const ul = el.nextElementSibling;
+    const arrow = el.querySelector(".filetree-arrow");
+    if (!ul) return;
+    if (ul.style.display === "none") {
+        ul.style.display = "";
+        if (arrow) arrow.innerHTML = "&#9660;";
+    } else {
+        ul.style.display = "none";
+        if (arrow) arrow.innerHTML = "&#9654;";
+    }
+}
+
+// Highlight the currently open file in the tree on page load.
+(function() {
+    const params = new URLSearchParams(window.location.search);
+    const currentFile = params.get("file");
+    if (!currentFile) return;
+    document.querySelectorAll(".filetree-file-link").forEach(a => {
+        const href = new URL(a.href, location.href);
+        const fileParam = new URLSearchParams(href.search).get("file");
+        if (fileParam === currentFile) a.classList.add("active");
+    });
+}());
+</script>
+{{end}}
+
+{{define "filetreeNode"}}
+<li class="filetree-item">
+{{if .IsDir}}
+    <div class="filetree-dir" onclick="toggleDir(this)">
+        <span class="filetree-arrow">&#9660;</span>
+        <strong>{{.Name}}/</strong>
+    </div>
+    <ul class="filetree-list">
+        {{range .Children}}
+            {{template "filetreeNode" .}}
+        {{end}}
+    </ul>
+{{else}}
+    <a class="filetree-file-link" href="/design/edit?file={{.Path}}">{{.Name}}</a>
+{{end}}
+</li>
+{{end}}

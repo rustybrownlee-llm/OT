@@ -176,12 +176,12 @@ Validation workflow:
 
 | # | SOW | Title | Dependencies | Status | Notes |
 |---|-----|-------|-------------|--------|-------|
-| 1 | SOW-034.0 | Design Layer JSON Schemas | None | Not Started | JSON Schema for device atom, network atom, environment, process YAML types |
-| 2 | SOW-035.0 | Admin CLI Module and Core Commands | None | Not Started | New admin/ Go module, health check, db status/validate/prune/export, config view/validate |
-| 3 | SOW-036.0 | Design Validation CLI | SOW-034.0, SOW-035.0 | Not Started | `otsim design validate` using JSON Schema, cross-reference validation, `otsim design list` |
-| 4 | SOW-037.0 | Admin Web Dashboard | SOW-035.0 | Not Started | Web server on :8095, health dashboard, DB panel, config viewer, baseline status |
-| 5 | SOW-038.0 | YAML Editor with Schema Validation | SOW-034.0, SOW-037.0 | Not Started | CodeMirror 6 editor, file tree browser, schema validation UI, save workflow |
-| 6 | SOW-039.0 | CLI Reference Documentation | SOW-035.0, SOW-036.0 | Not Started | Command reference, examples, expected output for every CLI command |
+| 1 | SOW-034.0 | Design Layer JSON Schemas | None | Complete | JSON Schema for device atom, network atom, environment, process YAML types |
+| 2 | SOW-035.0 | Admin CLI Module and Core Commands | None | Complete | New admin/ Go module, health check, db status/validate/prune/export, config view/validate |
+| 3 | SOW-036.0 | Design Validation CLI | SOW-034.0, SOW-035.0 | Complete | `otsim design validate` using JSON Schema, cross-reference validation, `otsim design list` |
+| 4 | SOW-037.0 | Admin Web Dashboard | SOW-035.0 | Complete | Web server on :8095, health dashboard, DB panel, config viewer, baseline status |
+| 5 | SOW-038.0 | YAML Editor with Schema Validation | SOW-034.0, SOW-037.0 | Complete | CodeMirror 6 editor, file tree browser, schema validation UI, save workflow |
+| 6 | SOW-039.0 | CLI Reference Documentation | SOW-035.0, SOW-036.0 | Complete | Command reference, examples, expected output for every CLI command |
 
 ### Dependency Graph
 

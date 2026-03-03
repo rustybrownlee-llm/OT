@@ -1,0 +1,191 @@
+{{define "content"}}
+{{/* PROTOTYPE-DEBT: [td-admin-122] Config save does not hot-reload the running monitor. */}}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">Configuration</h4>
+    <span class="text-muted small">{{.ConfigPath}}</span>
+</div>
+
+{{if .LoadError}}
+<div class="alert alert-danger">{{.LoadError}}</div>
+{{end}}
+
+{{if .Config}}
+<!-- Config Summary -->
+<div class="card mb-3">
+    <div class="card-header"><strong>Settings Summary</strong></div>
+    <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+            <tbody>
+                <tr>
+                    <th class="w-25 ps-3">Poll interval</th>
+                    <td>{{.Config.PollIntervalSeconds}}s</td>
+                    <th class="w-25">API address</th>
+                    <td>{{.Config.APIAddr}}</td>
+                </tr>
+                <tr>
+                    <th class="ps-3">Dashboard address</th>
+                    <td>{{.Config.DashboardAddr}}</td>
+                    <th>Environments</th>
+                    <td>{{len .Config.Environments}}</td>
+                </tr>
+                <tr>
+                    <th class="ps-3">Retention</th>
+                    <td>{{.Config.EventRetentionDays}} days</td>
+                    <th>Syslog</th>
+                    <td>{{if .Config.Syslog.Enabled}}enabled ({{.Config.Syslog.Target}}){{else}}disabled{{end}}</td>
+                </tr>
+                <tr>
+                    <th class="ps-3">Baseline cycles</th>
+                    <td>{{.Config.BaselineLearningCycles}}</td>
+                    <th>Log level</th>
+                    <td>{{.Config.LogLevel}}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{{end}}
+
+<!-- Raw YAML content passed to CodeMirror via hidden element to avoid JS string escaping. -->
+{{if .RawYAMLText}}
+<pre id="cm-raw-yaml" style="display:none;">{{.RawYAMLText}}</pre>
+
+<div class="card">
+    <div class="card-header d-flex align-items-center gap-2">
+        <strong>monitor.yaml</strong>
+        <span class="badge bg-secondary">Monitor Configuration</span>
+        <div class="ms-auto d-flex gap-2">
+            <button id="btn-validate" class="btn btn-sm btn-outline-secondary"
+                    onclick="configValidate()">Validate</button>
+            <button id="btn-save" class="btn btn-sm btn-primary"
+                    onclick="configSave()">Save</button>
+        </div>
+    </div>
+    <div id="cm-config" style="min-height: 300px; max-height: 60vh; overflow: auto;"></div>
+    <div class="card-footer p-2">
+        <div id="config-validation-panel">
+            <p class="text-muted small mb-0">No validation results. Click Validate to check the configuration.</p>
+        </div>
+        <p class="text-muted small mb-0 mt-1">
+            Config validation checks the parsed configuration structure.
+            Errors may not correspond to specific lines.
+        </p>
+    </div>
+</div>
+
+<script type="module">
+import { EditorView, highlightActiveLine, drawSelection } from "@codemirror/view";
+import { EditorState } from "@codemirror/state";
+import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { yaml } from "@codemirror/lang-yaml";
+
+// Config editor omits line numbers per FR-9: struct-level validation, not line-level.
+const extensions = [
+    highlightActiveLine(),
+    drawSelection(),
+    bracketMatching(),
+    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+    yaml(),
+    EditorView.lineWrapping,
+];
+
+const RAW_YAML = document.getElementById("cm-raw-yaml").textContent;
+
+const startState = EditorState.create({ doc: RAW_YAML, extensions });
+const configView = new EditorView({
+    state: startState,
+    parent: document.getElementById("cm-config"),
+});
+
+let dirty = false;
+configView.dom.addEventListener("keydown", () => { dirty = true; });
+window.addEventListener("beforeunload", e => {
+    if (dirty) { e.preventDefault(); e.returnValue = ""; }
+});
+
+window.configValidate = async function() {
+    const btn = document.getElementById("btn-validate");
+    btn.disabled = true;
+    btn.textContent = "Validating...";
+    try {
+        const resp = await fetch("/api/config/validate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: configView.state.doc.toString() }),
+        });
+        const data = await resp.json();
+        renderConfigResult(data);
+    } catch(err) {
+        document.getElementById("config-validation-panel").innerHTML =
+            '<div class="alert alert-warning py-1 mb-0 small">' + escHtml(err.message) + '</div>';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Validate";
+    }
+};
+
+window.configSave = async function() {
+    const btn = document.getElementById("btn-save");
+    btn.disabled = true;
+    btn.textContent = "Saving...";
+    try {
+        const resp = await fetch("/api/config/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: configView.state.doc.toString() }),
+        });
+        const data = await resp.json();
+        if (data.saved) {
+            dirty = false;
+            btn.textContent = "Saved";
+            btn.classList.remove("btn-primary", "btn-danger");
+            btn.classList.add("btn-success");
+            renderConfigResult({ valid: true });
+        } else {
+            btn.textContent = "Save Failed";
+            btn.classList.remove("btn-primary", "btn-success");
+            btn.classList.add("btn-danger");
+            renderConfigResult({ valid: false, errors: data.errors });
+        }
+    } catch(err) {
+        document.getElementById("config-validation-panel").innerHTML =
+            '<div class="alert alert-warning py-1 mb-0 small">' + escHtml(err.message) + '</div>';
+        btn.textContent = "Save Failed";
+        btn.classList.remove("btn-primary", "btn-success");
+        btn.classList.add("btn-danger");
+    } finally {
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = "Save";
+            btn.classList.remove("btn-success", "btn-danger");
+            btn.classList.add("btn-primary");
+        }, 2000);
+    }
+};
+
+function renderConfigResult(data) {
+    const panel = document.getElementById("config-validation-panel");
+    if (data.valid) {
+        panel.innerHTML =
+            '<div class="alert alert-success py-1 mb-0 small">Validation passed. No configuration errors found.</div>';
+        return;
+    }
+    const errors = data.errors || [];
+    let html = '<div class="d-flex align-items-center gap-2 mb-1">'
+        + '<span class="badge bg-danger">' + errors.length
+        + ' error' + (errors.length !== 1 ? 's' : '') + ' found</span></div>'
+        + '<table class="table table-sm table-bordered mb-0" style="font-size:0.8rem;">'
+        + '<thead class="table-light"><tr><th>Message</th></tr></thead><tbody>';
+    for (const e of errors) {
+        html += '<tr class="table-danger"><td>' + escHtml(e.message) + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    panel.innerHTML = html;
+}
+
+function escHtml(str) {
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+</script>
+{{end}}
+{{end}}

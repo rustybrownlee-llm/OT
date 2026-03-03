@@ -25,12 +25,14 @@ design/ --YAML--> plant/ --network--> monitoring/
 | `design/` | Device library, network atoms, environment definitions (pure YAML) | Evolving, schema-versioned |
 | `plant/` | Runtime engine that instantiates any environment definition | Stable, production-quality |
 | `monitoring/` | Security monitoring and detection tools | Fluid, experimental |
+| `admin/` | Platform administration CLI and web dashboard | New in Beta 0.7 |
 | `scenarios/` | Guided exercises referencing design layer environments | Curated, versioned |
 | `docs/` | ADRs (`architecture/decisions/`), SOWs (`implementation/sows/`), specs (`specs/`) | Living documentation |
 
 ### Key Separation Principles
 
-- `plant/` and `monitoring/` are **independent Go modules** with separate `go.mod` files. Monitoring CANNOT import plant packages. It interacts over the network only.
+- `plant/`, `monitoring/`, and `admin/` are **independent Go modules** with separate `go.mod` files. Monitoring CANNOT import plant packages. It interacts over the network only.
+- `admin/` is a cross-cutting module that reads design YAML directly, accesses the monitoring SQLite DB, and calls monitoring/plant APIs over HTTP. It does NOT import plant or monitoring Go packages.
 - `design/` defines *what* to simulate. `plant/` defines *how* to simulate it. Design is pure YAML; plant owns all parsing.
 
 ## Technology Stack
@@ -46,6 +48,8 @@ Extends the shared Go stack with these project-specific technologies:
 | go:embed | Static asset embedding | Single binary deployment for HMI |
 | Bootstrap 5 | HMI web framework | Via CDN, no build step |
 | HTMX | Dynamic HMI updates | Via CDN, real-time register display |
+| CodeMirror 6 | YAML code editor for admin tools | Via CDN (esm.sh), no build step. Admin dashboard only. |
+| santhosh-tekuri/jsonschema | JSON Schema validation in Go | MIT license, Draft 2020-12 support. Admin CLI/web. |
 
 **Forbidden (project-specific)**: OpenPLC (GPL, wrong abstraction), pymodbus (wrong language), Cobra/viper (per shared standards).
 
@@ -64,6 +68,7 @@ Extends the shared Go stack with these project-specific technologies:
 | 8081 | Manufacturing HMI | Legacy operator interface |
 | 8090 | Monitoring dashboard | Security analyst view |
 | 8091 | Alert API | Anomaly detection alerts |
+| 8095 | Admin dashboard | Platform administration |
 
 ## SOW Workflow
 

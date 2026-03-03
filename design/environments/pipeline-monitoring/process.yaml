@@ -1,0 +1,772 @@
+# process.yaml - Pipeline Monitoring Station Process Schematic
+# Remote unmanned natural gas compressor station on a transmission pipeline.
+# Maps every physical equipment item and instrument to its Modbus register address
+# across three devices: ps-plc-01 (CompactLogix), ps-rtu-02 (ROC800 station-monitoring),
+# and ps-rtu-01 (ROC800 pipeline-metering), plus ps-fc-01 (TotalFlow G5 gas analyzer).
+#
+# Physical flow:
+#   Station Inlet -> [inlet-block-valve] -> [compressor-unit]
+#   -> [aftercooler -- no dedicated registers] -> [esd-valve]
+#   -> [outlet-block-valve] -> [meter-run-01] -> [gas-chromatograph (side-stream)]
+#
+# [OT-REVIEW] Aftercooler: the gas turbine-driven centrifugal compressor produces significant
+# compression heat (TT-102/TT-103 measure bearing temperatures up to 300 degF). An aftercooler
+# between the compressor discharge and the ESD valve removes this compression heat before the
+# gas enters the metering run. TT-105 (station_outlet_temperature, ps-rtu-02, HR4) measures
+# post-aftercooler temperature and will read in the ambient pipeline range (-20 to 150 degF).
+# The temperature drop from TT-102/TT-103 (bearing area) to TT-105 (post-aftercooler) is
+# expected thermodynamic behavior, not sensor error or register mismatch. No aftercooler
+# equipment is modeled (no dedicated registers in any device atom); this YAML inline comment
+# is the sole documentation of this physical component.
+#
+# Addressing conventions (critical for simulation fidelity):
+#   ps-plc-01 (CompactLogix L33ER, compressor-control variant): ZERO-BASED addressing
+#   ps-rtu-01 (Emerson ROC800, pipeline-metering variant): ONE-BASED addressing
+#   ps-rtu-02 (Emerson ROC800, station-monitoring variant): ONE-BASED addressing
+#   ps-fc-01 (ABB TotalFlow G5, gas-analysis variant): ONE-BASED addressing
+# Stage 1 is a MIXED-DEVICE stage: inlet/outlet valve instruments on ps-rtu-02 (one-based)
+# and compressor unit instruments on ps-plc-01 (zero-based). Each instrument block below
+# explicitly identifies its placement.
+#
+# ISA-5.1 tagging principle applied throughout:
+# - Transmitter-suffix tags (PT, TT, FT, AT, ZT, VT, ST, PDT, ZS): read-only measurements
+# - Controller-suffix tags (HS): SCADA-initiated discrete commands (per project convention)
+# - run: project extension for binary coil run commands
+# - FQ: flow quantity totalizer (ISA-5.1 F=flow, Q=quantity/integrate; custody transfer volumes)
+#
+# Safety constraint: ESD valve (ZT-102/ZS-101) is hardwired de-energize-to-trip per
+# DOT 49 CFR 192. It cannot be commanded via Modbus write. Communications loss IS an
+# ESD condition -- the RTU de-energizes the trip relay on comms failure. This is a
+# critical distinction from a conventional valve: writing to this device is not possible.
+#
+# Known gaps (see SOW-024.0 technical debt):
+# - td-050: Only meter run 1 has full AGA-3 detail; runs 2-4 are coil-only (enable/disable)
+# - td-051: Gas chromatograph shown as final stage but physically samples a side stream
+# - td-054: compressor_status_word and station_status_word bitmasks not mapped
+schema_version: "0.1"
+
+process:
+  id: "pipeline-monitoring"
+  name: "Pipeline Monitoring Station"
+  description: >
+    Three-stage remote gas compressor station: gas compression (centrifugal compressor with
+    lube oil and vibration monitoring), custody-transfer metering (AGA-3 orifice with
+    differential pressure measurement), and gas quality analysis (NGC gas chromatograph with
+    BTU, specific gravity, and moisture content). Unmanned; monitored via satellite/cellular
+    WAN backhaul to remote SCADA master. Imperial units throughout.
+  flow_direction: "horizontal"
+
+stages:
+  # ---------------------------------------------------------------------------
+  # Stage 1: Gas Compression
+  # MIXED-DEVICE STAGE: instruments span two placements.
+  #   ps-rtu-02 (Emerson ROC800, station-monitoring variant, ONE-BASED addressing):
+  #     inlet/outlet pressures, temperatures, valve positions, block valve commands
+  #   ps-plc-01 (CompactLogix L33ER, compressor-control variant, ZERO-BASED addressing):
+  #     compressor speed, bearing temperatures, vibration, lube oil, run command
+  # Each instrument below identifies its placement explicitly.
+  # ---------------------------------------------------------------------------
+  - id: "compression"
+    name: "Gas Compression"
+    controller:
+      placement: "ps-plc-01"
+      device: "compactlogix-l33er"
+    equipment:
+      # Station Inlet Block Valve: motorized ball valve isolating the station from the
+      # upstream transmission pipeline. Operated remotely via SCADA for planned shutdowns
+      # and isolation. Position feedback (ZT-101) comes from analog limit switch feedback
+      # (0=fully closed, 100=fully open). Block valve command (HS-101) is the Modbus-writable
+      # coil. ZT = Position Transmitter per ISA-5.1.
+      #
+      # All inlet block valve instruments are on ps-rtu-02 (ROC800, ONE-BASED addressing).
+      - id: "inlet-block-valve"
+        type: "valve"
+        label: "Station Inlet Block Valve"
+        era: 2015
+        instruments:
+          # --- ps-rtu-02 instruments (ROC800, station-monitoring, ONE-BASED) ---
+          - tag: "PT-101"
+            name: "Station Inlet Pressure"
+            isa_type: "PT"
+            # Station inlet pressure from upstream pipeline (suction side of compressor).
+            # Typical transmission pipeline suction: 400-800 PSIG. This is the pressure
+            # the gas arrives at before entering the compressor.
+            placement: "ps-rtu-02"
+            register:
+              type: "holding"
+              address: 1         # HR1 = station_inlet_pressure (one-based ROC800 convention)
+            unit: "PSIG"
+            scale: [0.0, 1500.0]
+
+          - tag: "TT-101"
+            name: "Station Inlet Temperature"
+            isa_type: "TT"
+            # Flowing gas temperature at station inlet. Outdoor pipeline:
+            # winter lows near -20 degF to summer highs near 150 degF. Used as
+            # an AGA-3 flowing temperature input for the metering RTU.
+            placement: "ps-rtu-02"
+            register:
+              type: "holding"
+              address: 3         # HR3 = station_inlet_temperature (one-based ROC800 convention)
+            unit: "degF"
+            scale: [-20.0, 150.0]
+
+          - tag: "ZT-101"
+            name: "Inlet Block Valve Position"
+            isa_type: "ZT"
+            # Analog valve position feedback from limit switch transmitter (0=closed, 100=full open).
+            # ZT = Position Transmitter per ISA-5.1. A block valve in motion between 0 and 100
+            # is transitioning; steady non-zero, non-100 value may indicate mechanical binding.
+            placement: "ps-rtu-02"
+            register:
+              type: "holding"
+              address: 5         # HR5 = inlet_block_valve_position (one-based ROC800 convention)
+            unit: "%"
+            scale: [0.0, 100.0]
+
+          - tag: "HS-101"
+            name: "Inlet Block Valve Command"
+            isa_type: "HS"
+            # Writable coil commanding the inlet block valve open (1) or close (0).
+            # HS (Hand Switch) retained per project convention for SCADA-initiated
+            # discrete commands. ATTACK SURFACE: closing this valve isolates the
+            # station from the upstream pipeline; combined with compressor run command
+            # this can cause compressor surge or pipeline pressure excursion.
+            placement: "ps-rtu-02"
+            register:
+              type: "coil"
+              address: 2         # Coil2 = inlet_block_valve_cmd (one-based ROC800 convention)
+            unit: "bool"
+
+      # Centrifugal Compressor Unit: gas turbine-driven centrifugal compressor, the
+      # primary piece of equipment in the station. Compresses gas from suction pressure
+      # (typically 400-800 PSIG) to discharge pressure (typically 800-1400 PSIG) with
+      # a typical compression ratio of 1.2-2.0.
+      #
+      # Compressor instruments split across two devices:
+      #   - ST-102 through TT-104 and run-C-101 are on ps-plc-01 (CompactLogix, ZERO-BASED)
+      # The station PLC aggregates all compressor unit data for the SCADA master.
+      # In real stations each compressor unit has its own Unit PLC (vendor-supplied);
+      # this station PLC aggregates unit data and provides the SCADA Modbus interface.
+      - id: "compressor-unit"
+        type: "compressor"
+        label: "Centrifugal Compressor"
+        era: 2015
+        instruments:
+          # --- ps-plc-01 instruments (CompactLogix, compressor-control, ZERO-BASED) ---
+          - tag: "ST-102"
+            name: "Compressor Shaft Speed"
+            isa_type: "ST"
+            # Read-only compressor shaft speed from tachometer pickup.
+            # Operating range: 3000-5500 RPM (gas turbine driver).
+            # [OT-REVIEW] W:5200 fires before reaching the 5500 RPM rated maximum;
+            # warning should alert operators to approaching the limit, not at the limit.
+            # A:5500 = at rated maximum; sustained operation at or above trips the unit.
+            placement: "ps-plc-01"
+            register:
+              type: "holding"
+              address: 0         # HR0 = compressor_speed (zero-based CompactLogix convention)
+            unit: "RPM"
+            scale: [0.0, 6000.0]
+            thresholds:
+              warning: 5200.0
+              alarm: 5500.0
+
+          - tag: "PT-102"
+            name: "Compressor Suction Pressure"
+            isa_type: "PT"
+            # Compressor suction (inlet) pressure -- same measurement point as PT-101
+            # but read by the station PLC for compressor control logic.
+            placement: "ps-plc-01"
+            register:
+              type: "holding"
+              address: 1         # HR1 = suction_pressure (zero-based CompactLogix convention)
+            unit: "PSIG"
+            scale: [0.0, 1500.0]
+
+          - tag: "PT-103"
+            name: "Compressor Discharge Pressure"
+            isa_type: "PT"
+            # Compressor discharge pressure after compression. Typical: 800-1400 PSIG.
+            # Compression ratio (PT-103 / PT-102) is monitored for anti-surge control.
+            placement: "ps-plc-01"
+            register:
+              type: "holding"
+              address: 2         # HR2 = discharge_pressure (zero-based CompactLogix convention)
+            unit: "PSIG"
+            scale: [0.0, 1500.0]
+
+          - tag: "TT-102"
+            name: "Drive-End Bearing Temperature"
+            isa_type: "TT"
+            # Drive-end radial bearing temperature (proximity to gas turbine makes this
+            # the hotter bearing). Normal: 150-250 degF. W:275 fires before trip limit.
+            # A:300 at rated trip limit. Sustained >300 trips the compressor.
+            # [OT-REVIEW] Temperature measured here is at the bearing, not at the gas.
+            # TT-105 (post-aftercooler) will be in the ambient pipeline range -- the
+            # temperature drop between these readings is expected thermodynamic behavior.
+            placement: "ps-plc-01"
+            register:
+              type: "holding"
+              address: 3         # HR3 = bearing_temp_drive_end (zero-based CompactLogix convention)
+            unit: "degF"
+            scale: [0.0, 350.0]
+            thresholds:
+              warning: 275.0
+              alarm: 300.0
+
+          - tag: "TT-103"
+            name: "Non-Drive-End Bearing Temperature"
+            isa_type: "TT"
+            # Non-drive-end radial bearing temperature. Typically cooler than drive end.
+            # Same trip criteria as TT-102: W:275, A:300 per compressor protection settings.
+            placement: "ps-plc-01"
+            register:
+              type: "holding"
+              address: 4         # HR4 = bearing_temp_non_drive_end (zero-based CompactLogix convention)
+            unit: "degF"
+            scale: [0.0, 350.0]
+            thresholds:
+              warning: 275.0
+              alarm: 300.0
+
+          - tag: "VT-101"
+            name: "Compressor Vibration"
+            isa_type: "VT"
+            # Overall vibration level (radial, peak-to-peak) from Bently Nevada 3300
+            # or equivalent proximity probes. Normal: <2 mils. W:3.0 approaching alarm.
+            # A:5.0 = alarm limit. Compressor trips at 5 mils to prevent catastrophic failure.
+            # VT = Vibration Transmitter per ISA-5.1. Mils = thousandths of an inch.
+            placement: "ps-plc-01"
+            register:
+              type: "holding"
+              address: 5         # HR5 = vibration_overall (zero-based CompactLogix convention)
+            unit: "mils"
+            scale: [0.0, 10.0]
+            thresholds:
+              warning: 3.0
+              alarm: 5.0
+
+          - tag: "PT-104"
+            name: "Lube Oil Pressure"
+            isa_type: "PT"
+            # Lube oil header pressure at bearing inlet. Low pressure is a critical trip
+            # condition: bearing failure risk without adequate lubrication. Normal: 25-45 PSIG.
+            # WL:15 (low warning), AL:10 (low alarm / trip). Low-side only: high oil
+            # pressure is not a safety concern.
+            placement: "ps-plc-01"
+            register:
+              type: "holding"
+              address: 6         # HR6 = lube_oil_pressure (zero-based CompactLogix convention)
+            unit: "PSIG"
+            scale: [0.0, 100.0]
+            thresholds:
+              warning_low: 15.0
+              alarm_low: 10.0
+
+          - tag: "TT-104"
+            name: "Lube Oil Temperature"
+            isa_type: "TT"
+            # Lube oil temperature at bearing inlet (maintained 120-140 degF by oil cooler).
+            # W:160 = high warning; oil breakdown risk >180 degF. High-side only.
+            placement: "ps-plc-01"
+            register:
+              type: "holding"
+              address: 7         # HR7 = lube_oil_temperature (zero-based CompactLogix convention)
+            unit: "degF"
+            scale: [0.0, 200.0]
+            thresholds:
+              warning: 160.0
+              alarm: 180.0
+
+          - tag: "run-C-101"
+            name: "Compressor Run Command"
+            isa_type: "run"
+            # Project extension: writable binary coil commanding compressor start/stop.
+            # 1=run initiates full startup sequence: lube oil priming, ignition, ramp to speed.
+            # 0=stop initiates controlled shutdown: unload, cool-down, secure.
+            # ATTACK SURFACE: writing 1 without all permissives satisfied causes startup
+            # failure or equipment damage; writing 0 during operation causes an unplanned
+            # shutdown with pipeline pressure excursion. All permissives (lube oil, vibration,
+            # temperature) must be satisfied before the startup sequence proceeds.
+            placement: "ps-plc-01"
+            register:
+              type: "coil"
+              address: 0         # Coil0 = compressor_run_cmd (zero-based CompactLogix convention)
+            unit: "bool"
+
+      # [OT-REVIEW] AFTERCOOLER NOTE: Between the compressor discharge and the ESD valve,
+      # an aftercooler removes compression heat. No dedicated device registers exist for it.
+      # The temperature drop from TT-102/TT-103 (bearing temps, 150-300 degF) to TT-105
+      # (post-aftercooler outlet, ambient pipeline range -20 to 150 degF) is the observable
+      # evidence of the aftercooler. This is expected thermodynamic behavior.
+
+      # Emergency Shutdown Valve: spring-actuated fail-closed ball valve on the station
+      # outlet. Critical safety element per DOT 49 CFR 192. Hardwired de-energize-to-trip:
+      # the valve is held open by instrument air; loss of air or power closes it.
+      # CANNOT be commanded via Modbus write -- ZS-101 is a read-only status coil.
+      # ZT-102 monitors the position feedback. Communications failure IS an ESD condition.
+      #
+      # All ESD valve instruments are on ps-rtu-02 (ROC800, ONE-BASED addressing).
+      - id: "esd-valve"
+        type: "valve"
+        label: "Emergency Shutdown Valve"
+        era: 2015
+        instruments:
+          # --- ps-rtu-02 instruments (ROC800, station-monitoring, ONE-BASED) ---
+          - tag: "ZT-102"
+            name: "ESD Valve Position"
+            isa_type: "ZT"
+            # Analog position feedback from ESD valve (0=closed/safe, 100=open/flowing).
+            # Fail-safe design: spring closes valve when instrument air or power is lost.
+            # A healthy operating station reads ~100% continuously.
+            placement: "ps-rtu-02"
+            register:
+              type: "holding"
+              address: 7         # HR7 = esd_valve_position (one-based ROC800 convention)
+            unit: "%"
+            scale: [0.0, 100.0]
+
+          - tag: "ZS-101"
+            name: "ESD Active Status"
+            isa_type: "ZS"
+            # Read-only status coil: ESD sequence is active (valve closed, station isolated).
+            # Cannot be reset remotely per DOT 49 CFR 192. Requires local operator reset
+            # after the initiating condition is cleared. ESD is hardwired -- not Modbus-writable.
+            # Communications failure IS an ESD condition per design.
+            placement: "ps-rtu-02"
+            register:
+              type: "coil"
+              address: 4         # Coil4 = esd_active_status (one-based ROC800 convention)
+            unit: "bool"
+
+      # Station Outlet Block Valve: motorized ball valve isolating the station from the
+      # downstream transmission pipeline. Provides isolation capability on the discharge side.
+      # Post-aftercooler measurement point: TT-105 reads ambient pipeline gas temperature
+      # (not compression heat), confirming the aftercooler is functioning correctly.
+      #
+      # All outlet block valve instruments are on ps-rtu-02 (ROC800, ONE-BASED addressing).
+      - id: "outlet-block-valve"
+        type: "valve"
+        label: "Station Outlet Block Valve"
+        era: 2015
+        instruments:
+          # --- ps-rtu-02 instruments (ROC800, station-monitoring, ONE-BASED) ---
+          - tag: "PT-105"
+            name: "Station Outlet Pressure"
+            isa_type: "PT"
+            # Pipeline pressure at station outlet (downstream of compressor and aftercooler).
+            # Typical discharge pressure: 800-1400 PSIG depending on downstream demand.
+            placement: "ps-rtu-02"
+            register:
+              type: "holding"
+              address: 2         # HR2 = station_outlet_pressure (one-based ROC800 convention)
+            unit: "PSIG"
+            scale: [0.0, 1500.0]
+
+          - tag: "TT-105"
+            name: "Station Outlet Temperature"
+            isa_type: "TT"
+            # [OT-REVIEW] Post-aftercooler gas temperature at station outlet. Aftercooler removes
+            # compression heat; this reading is in the ambient pipeline range (-20 to 150 degF).
+            # The large temperature drop from TT-102/TT-103 (bearing temps, 150-300 degF) to this
+            # register is EXPECTED BEHAVIOR -- it confirms the aftercooler is operating correctly.
+            # A value unexpectedly close to TT-102 would indicate aftercooler bypass or failure.
+            placement: "ps-rtu-02"
+            register:
+              type: "holding"
+              address: 4         # HR4 = station_outlet_temperature (one-based ROC800 convention)
+            unit: "degF"
+            scale: [-20.0, 150.0]
+
+          - tag: "ZT-103"
+            name: "Outlet Block Valve Position"
+            isa_type: "ZT"
+            # Analog position feedback from outlet block valve (0=closed, 100=full open).
+            # Normal operating position: 100% (fully open during production).
+            placement: "ps-rtu-02"
+            register:
+              type: "holding"
+              address: 6         # HR6 = outlet_block_valve_position (one-based ROC800 convention)
+            unit: "%"
+            scale: [0.0, 100.0]
+
+          - tag: "HS-102"
+            name: "Outlet Block Valve Command"
+            isa_type: "HS"
+            # Writable coil commanding the outlet block valve open (1) or close (0).
+            # Closing during operation causes discharge pressure buildup and compressor surge.
+            placement: "ps-rtu-02"
+            register:
+              type: "coil"
+              address: 3         # Coil3 = outlet_block_valve_cmd (one-based ROC800 convention)
+            unit: "bool"
+
+  # ---------------------------------------------------------------------------
+  # Stage 2: Custody Transfer Metering
+  # Controller: ps-rtu-01 (Emerson ROC800, pipeline-metering variant, ONE-BASED addressing)
+  # AGA-3 orifice flow calculation: DP, static pressure, and flowing temperature inputs.
+  # These registers are the financial backbone of gas pipeline operations -- measured volumes
+  # determine billing at custody transfer points. Spoofing DP directly alters calculated volume.
+  # ---------------------------------------------------------------------------
+  - id: "metering"
+    name: "Custody Transfer Metering"
+    controller:
+      placement: "ps-rtu-01"
+      device: "emerson-roc800"
+    equipment:
+      # AGA-3 Orifice Meter Run 1: the primary financial measurement instrument.
+      # AGA-3 calculation requires three inputs: differential pressure (PDT-201) across
+      # the orifice plate, static line pressure (PT-201), and flowing temperature (TT-201).
+      # DP is the primary measurement and the dominant financial manipulation attack surface.
+      # Meter runs 2-4 exist in hardware but have only enable/disable coils (TD-050).
+      #
+      # [OT-REVIEW] FT-250/FQ-250 use loop number 250 to distinguish station aggregate totals
+      # from meter run 1 instruments. Tag 202 would imply a second individual meter run (which
+      # does not exist at this level of register detail per TD-050). Loop 250 is a conventional
+      # designation for station aggregates, unambiguous from individual meter run tags (FT-201).
+      - id: "meter-run-01"
+        type: "meter"
+        label: "Meter Run 1 (AGA-3)"
+        era: 2015
+        instruments:
+          - tag: "FT-201"
+            name: "Meter Run 1 Flow Rate"
+            isa_type: "FT"
+            # AGA-3 calculated instantaneous flow rate for meter run 1.
+            # MSCFH = thousand standard cubic feet per hour (US pipeline standard unit).
+            # Value is RTU-calculated from DP, static pressure, and temperature inputs below.
+            placement: "ps-rtu-01"
+            register:
+              type: "holding"
+              address: 1         # HR1 = meter_run_1_flow_rate (one-based ROC800 convention)
+            unit: "MSCFH"
+            scale: [0.0, 5000.0]
+
+          - tag: "FQ-201"
+            name: "Meter Run 1 Volume Today"
+            isa_type: "FQ"
+            # [OT-REVIEW] Accumulated volume since contract day rollover (midnight or 9:00 AM
+            # per contract). FQ = Flow Quantity Totalizer per ISA-5.1 (F=flow, Q=quantity/integrate).
+            # A READING OF ZERO IS NORMAL at contract hour rollover -- it does not indicate
+            # a communication failure, meter disable, or data loss. Trainees must distinguish
+            # between a natural rollover reset and a zero caused by meter manipulation.
+            # ATTACK SURFACE: manipulating FQ-201 directly falsifies run 1 billing records.
+            placement: "ps-rtu-01"
+            register:
+              type: "holding"
+              address: 2         # HR2 = meter_run_1_volume_today (one-based ROC800 convention)
+            unit: "MCF"
+            scale: [0.0, 100000.0]
+
+          - tag: "PT-201"
+            name: "Meter Run 1 Static Pressure"
+            isa_type: "PT"
+            # AGA-3 static line pressure upstream of orifice plate.
+            # This is one of the three AGA-3 calculation inputs alongside DP (PDT-201)
+            # and flowing temperature (TT-201). Spoofing this value shifts the calculated
+            # volume proportionally.
+            placement: "ps-rtu-01"
+            register:
+              type: "holding"
+              address: 3         # HR3 = meter_run_1_pressure (one-based ROC800 convention)
+            unit: "PSIG"
+            scale: [0.0, 1500.0]
+
+          - tag: "TT-201"
+            name: "Meter Run 1 Flowing Temperature"
+            isa_type: "TT"
+            # AGA-3 flowing gas temperature from RTD sensor in thermowell.
+            # Third AGA-3 calculation input. Temperature affects gas density and therefore
+            # the calculated volume. Outdoor pipeline: -20 to 150 degF seasonal range.
+            placement: "ps-rtu-01"
+            register:
+              type: "holding"
+              address: 4         # HR4 = meter_run_1_temperature (one-based ROC800 convention)
+            unit: "degF"
+            scale: [-20.0, 150.0]
+
+          - tag: "PDT-201"
+            name: "Meter Run 1 Differential Pressure"
+            isa_type: "PDT"
+            # [OT-REVIEW] PRIMARY AGA-3 FINANCIAL ATTACK SURFACE. Differential pressure
+            # across the orifice plate is the dominant input in the AGA-3 flow equation
+            # (flow rate is proportional to sqrt(DP)). Spoofing this register directly
+            # alters calculated volume and therefore custody transfer billing.
+            # Normal operating DP: 10-100 inH2O for a properly sized orifice plate.
+            placement: "ps-rtu-01"
+            register:
+              type: "holding"
+              address: 5         # HR5 = meter_run_1_differential_pressure (one-based ROC800 convention)
+            unit: "inH2O"
+            scale: [0.0, 200.0]
+
+          - tag: "FT-250"
+            name: "Station Total Flow Rate"
+            isa_type: "FT"
+            # Station aggregate flow rate (sum of all active meter run rates, RTU-calculated).
+            # Loop number 250 designates this as a station aggregate, not meter run 2.
+            # Scale 0-20000 MSCFH = 4 meter runs at 5000 MSCFH maximum each.
+            placement: "ps-rtu-01"
+            register:
+              type: "holding"
+              address: 6         # HR6 = station_total_flow (one-based ROC800 convention)
+            unit: "MSCFH"
+            scale: [0.0, 20000.0]
+
+          - tag: "FQ-250"
+            name: "Station Total Volume Today"
+            isa_type: "FQ"
+            # [OT-REVIEW] Station aggregate accumulated volume since contract day rollover.
+            # Loop 250 designates station aggregate (not meter run 2). A READING OF ZERO IS
+            # NORMAL at contract hour rollover (midnight or 9:00 AM per contract).
+            # The rollover behavior is identical to FQ-201: zero means rollover, not failure.
+            # ATTACK SURFACE: manipulating FQ-250 falsifies total station billing records
+            # without altering individual run meters -- a more covert manipulation vector.
+            placement: "ps-rtu-01"
+            register:
+              type: "holding"
+              address: 7         # HR7 = station_total_volume_today (one-based ROC800 convention)
+            unit: "MCF"
+            scale: [0.0, 100000.0]
+
+          - tag: "HS-201"
+            name: "Meter Run 1 Enable"
+            isa_type: "HS"
+            # Writable coil enabling/disabling meter run 1 from AGA calculations.
+            # Operators disable runs during calibration or maintenance. Disabling removes
+            # run 1 from all AGA calculations and station totals. ATTACK SURFACE: an attacker
+            # disabling all meter runs causes zero measured flow while gas continues to flow.
+            placement: "ps-rtu-01"
+            register:
+              type: "coil"
+              address: 1         # Coil1 = meter_run_1_enabled (one-based ROC800 convention)
+            unit: "bool"
+
+          - tag: "HS-202"
+            name: "Meter Run 2 Enable"
+            isa_type: "HS"
+            # Writable coil enabling/disabling meter run 2 from AGA calculations.
+            # Runs 2-4 have coil-only representation (TD-050: no full AGA-3 register detail).
+            placement: "ps-rtu-01"
+            register:
+              type: "coil"
+              address: 2         # Coil2 = meter_run_2_enabled (one-based ROC800 convention)
+            unit: "bool"
+
+          - tag: "HS-203"
+            name: "Meter Run 3 Enable"
+            isa_type: "HS"
+            # Writable coil enabling/disabling meter run 3 from AGA calculations (TD-050).
+            placement: "ps-rtu-01"
+            register:
+              type: "coil"
+              address: 3         # Coil3 = meter_run_3_enabled (one-based ROC800 convention)
+            unit: "bool"
+
+          - tag: "HS-204"
+            name: "Meter Run 4 Enable"
+            isa_type: "HS"
+            # Writable coil enabling/disabling meter run 4 from AGA calculations (TD-050).
+            placement: "ps-rtu-01"
+            register:
+              type: "coil"
+              address: 4         # Coil4 = meter_run_4_enabled (one-based ROC800 convention)
+            unit: "bool"
+
+  # ---------------------------------------------------------------------------
+  # Stage 3: Gas Quality Analysis
+  # Controller: ps-fc-01 (ABB TotalFlow G5, gas-analysis variant, ONE-BASED addressing)
+  # Serial device: no Modbus TCP port. Accessed via ps-gw-01 (10.20.1.30:5043).
+  # Analysis values update every 5-10 minutes per NGC chromatograph cycle.
+  # Stale values between cycles are NORMAL BEHAVIOR -- not a communication failure.
+  # ---------------------------------------------------------------------------
+  - id: "gas-quality"
+    name: "Gas Quality Analysis"
+    controller:
+      placement: "ps-fc-01"
+      device: "abb-totalflow-g5"
+    equipment:
+      # Natural Gas Chromatograph (NGC): physically samples a side stream (~100 cc/min
+      # via sample conditioning system), not the main gas flow.
+      # [OT-REVIEW] The GC is positioned as the terminal stage for layout simplicity (TD-051).
+      # The meter-run-01 to gas-chromatograph connection below represents a sample tap
+      # on the metering run piping, not a full-flow diversion. The NGC samples a small
+      # conditioned side stream; main gas flow bypasses it entirely.
+      # Gas composition data feeds into AGA flow calculations on the ROC800 for billing accuracy.
+      # Manipulating BTU or specific gravity has direct financial impact on custody transfer.
+      - id: "gas-chromatograph"
+        type: "chromatograph"
+        label: "Gas Chromatograph (NGC)"
+        era: 2020
+        instruments:
+          - tag: "AT-301"
+            name: "Methane Concentration"
+            isa_type: "AT"
+            # Methane (CH4) -- primary component of natural gas (typical pipeline: 85-95%).
+            # AT = Analyzer Transmitter per ISA-5.1; gas composition is an analytical measurement.
+            # Values update every 5-10 minutes per NGC cycle. Stale between cycles: normal.
+            placement: "ps-fc-01"
+            register:
+              type: "holding"
+              address: 1         # HR1 = methane_pct (one-based TotalFlow convention)
+            unit: "%"
+            scale: [0.0, 100.0]
+
+          - tag: "AT-302"
+            name: "Ethane Concentration"
+            isa_type: "AT"
+            # Ethane (C2H6) -- second-largest component (typical: 2-6%).
+            # Increases heating value; higher ethane indicates a richer gas stream.
+            placement: "ps-fc-01"
+            register:
+              type: "holding"
+              address: 2         # HR2 = ethane_pct (one-based TotalFlow convention)
+            unit: "%"
+            scale: [0.0, 20.0]
+
+          - tag: "AT-303"
+            name: "Propane Concentration"
+            isa_type: "AT"
+            # Propane (C3H8) -- NGL component (typical: 0.5-2%).
+            # Affects hydrocarbon dew point; higher propane indicates wet gas from processing.
+            placement: "ps-fc-01"
+            register:
+              type: "holding"
+              address: 3         # HR3 = propane_pct (one-based TotalFlow convention)
+            unit: "%"
+            scale: [0.0, 10.0]
+
+          - tag: "AT-304"
+            name: "CO2 Concentration"
+            isa_type: "AT"
+            # Carbon dioxide (CO2) -- pipeline tariff contaminant (spec max typically 2-3%).
+            # W:2.0, A:3.0: high-side only thresholds. Exceedance triggers gas rejection
+            # under most pipeline tariff agreements. Gas above 3% CO2 is off-spec.
+            placement: "ps-fc-01"
+            register:
+              type: "holding"
+              address: 4         # HR4 = co2_pct (one-based TotalFlow convention)
+            unit: "%"
+            scale: [0.0, 5.0]
+            thresholds:
+              warning: 2.0
+              alarm: 3.0
+
+          - tag: "AT-305"
+            name: "Nitrogen Concentration"
+            isa_type: "AT"
+            # Nitrogen (N2) -- inert diluent (typical: 0.5-3%). Reduces heating value.
+            # High N2 (>5%) significantly reduces BTU -- directly affects billing.
+            placement: "ps-fc-01"
+            register:
+              type: "holding"
+              address: 5         # HR5 = nitrogen_pct (one-based TotalFlow convention)
+            unit: "%"
+            scale: [0.0, 10.0]
+
+          - tag: "AT-306"
+            name: "BTU Heating Value"
+            isa_type: "AT"
+            # Calculated gross heating value (higher heating value, saturated). Primary billing
+            # determinant alongside specific gravity (AT-307). Pipeline quality: 950-1150 BTU/SCF.
+            # [OT-REVIEW] Non-zero scale_min is intentional: register value 0 maps to 900 BTU/SCF.
+            # No pipeline-quality gas has a heating value below 900 BTU/SCF.
+            # WL:960, AL:950: low-side thresholds only. Gas below 950 BTU/SCF is off-spec.
+            # High BTU is not a tariff violation. Threshold ordering: AL:950 < WL:960 (correct).
+            placement: "ps-fc-01"
+            register:
+              type: "holding"
+              address: 6         # HR6 = btu_heating_value (one-based TotalFlow convention)
+            unit: "BTU/SCF"
+            scale: [900.0, 1200.0]
+            thresholds:
+              warning_low: 960.0
+              alarm_low: 950.0
+
+          - tag: "AT-307"
+            name: "Specific Gravity"
+            isa_type: "AT"
+            # Gas specific gravity relative to air (air=1.000). Pure methane=0.554.
+            # Pipeline gas: 0.57-0.72 typical. Used in AGA flow calculations.
+            # [OT-REVIEW] Non-zero scale_min (0.50) is intentional: brackets real pipeline gas.
+            # No physical gas has SG near zero. Above 0.75 indicates wet or rich gas.
+            placement: "ps-fc-01"
+            register:
+              type: "holding"
+              address: 7         # HR7 = specific_gravity (one-based TotalFlow convention)
+            unit: "SG"
+            scale: [0.50, 1.00]
+
+          - tag: "AT-308"
+            name: "Moisture Content"
+            isa_type: "AT"
+            # Water vapor content. Pipeline tariff typically requires <7 lb/MMSCF.
+            # Excess moisture causes hydrate formation and pipeline corrosion.
+            # W:5.0 (approaching tariff limit), A:7.0 (at tariff exceedance).
+            # High-side thresholds only. Ordering: W:5.0 < A:7.0 (correct).
+            placement: "ps-fc-01"
+            register:
+              type: "holding"
+              address: 8         # HR8 = moisture_content (one-based TotalFlow convention)
+            unit: "lb/MMSCF"
+            scale: [0.0, 20.0]
+            thresholds:
+              warning: 5.0
+              alarm: 7.0
+
+# Physical process connections -- main flow path from station inlet to discharge and analysis.
+# [OT-REVIEW] The meter-run-01 to gas-chromatograph connection represents a side-stream sample
+# tap on the metering run piping, not a full-flow diversion. The NGC physically samples ~100 cc/min
+# via a sample conditioning system; the main gas flow does not pass through the chromatograph.
+# This is a layout simplification (TD-051); side-stream visual indicators are out of scope until SOW-025.0.
+connections:
+  - from: "inlet-block-valve"
+    to: "compressor-unit"
+    type: "pipe"
+    label: "Station inlet gas"
+
+  - from: "compressor-unit"
+    to: "esd-valve"
+    type: "pipe"
+    label: "Compressed gas (post-aftercooler)"
+
+  - from: "esd-valve"
+    to: "outlet-block-valve"
+    type: "pipe"
+    label: "Gas to station outlet"
+
+  - from: "outlet-block-valve"
+    to: "meter-run-01"
+    type: "pipe"
+    label: "Compressed gas to metering"
+
+  - from: "meter-run-01"
+    to: "gas-chromatograph"
+    type: "pipe"
+    label: "Gas sample to analysis (side-stream tap, not full flow)"
+
+# Network context: security-relevant connectivity overlaying the station topology.
+# Infrastructure devices (ps-gw-01 Moxa gateway) are NOT listed here -- the Moxa serial
+# gateway bridges the serial bus but does not introduce external WAN connectivity.
+# Only the CompactLogix (ps-plc-01) is dual-homed; ROC800 RTUs are NOT WAN-reachable.
+network_context:
+  - id: "wan-backhaul"
+    type: "wan_link"
+    label: "Satellite/Cellular WAN"
+    era: 2015
+    placement: "ps-plc-01"
+    # [OT-REVIEW] The CompactLogix is dual-homed: it listens for Modbus TCP on both its
+    # station LAN IP (10.20.1.10) and its WAN IP (10.20.0.2), serving the same register map
+    # on both interfaces. Compromising the PLC via the WAN gives write access to compressor
+    # control registers (run-C-101, run command coil). LATERAL MOVEMENT CONSTRAINT: the PLC
+    # does NOT route IP packets between the WAN and station LAN. Exploiting the PLC via WAN
+    # does NOT give direct IP access to the ROC800 RTUs (ps-rtu-01 at 10.20.1.20, ps-rtu-02
+    # at 10.20.1.21) or the Moxa gateway (ps-gw-01 at 10.20.1.30). Lateral movement to the
+    # ROC800s requires a separate technique (e.g., using the PLC as a Modbus proxy, or
+    # gaining physical access to the station LAN). This boundary is a critical security
+    # teaching point for distinguishing process network exposure from protocol-level access.
+    warning: >
+      Dual-homed PLC exposes compressor registers on both station LAN (10.20.1.10) and WAN
+      (10.20.0.2). Compromising PLC via WAN gives write access to compressor run command.
+      ROC800 metering RTUs NOT reachable from WAN -- only the PLC is dual-homed.

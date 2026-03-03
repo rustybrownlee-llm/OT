@@ -1,0 +1,873 @@
+# process.yaml - Brownfield Wastewater Treatment Plant Process Schematic
+# Municipal WWTP built 1997 with ad-hoc modernization through 2022.
+# Maps every physical equipment item and instrument to its Modbus register address
+# across three PLCs: ww-plc-01 (SLC-500, influent), ww-plc-02 (SLC-500, effluent),
+# and ww-plc-03 (CompactLogix, aeration blower).
+#
+# Treatment strategy:
+#   Raw influent -> Bar Screen (debris removal) -> Grit Chamber (inorganic settling)
+#   -> Primary Clarifier (primary solids settlement and sludge withdrawal)
+#   -> Aeration Basin (activated sludge biological treatment, dissolved oxygen control)
+#   -> Secondary Clarifier (secondary solids settling, RAS/WAS management)
+#   -> UV Disinfection (254nm UV inactivation of pathogens)
+#   -> Effluent Outfall (NPDES permitted discharge)
+#
+# Facility era history:
+#   1997: Original build. Two SLC-500/05 PLCs on DH-485 serial backbone. Influent
+#         screening, primary clarification, secondary clarification, UV, and discharge.
+#         Single unmanaged switch (still present 2026). All PLCs on flat 192.168.10.0/24.
+#   2008: Moxa NPort 5150 gateway installed for remote monitoring over ww-level3 VLAN.
+#         Enables Modbus TCP polling of legacy SLC-500s via Modbus RTU through ProSoft modules.
+#   2013: Aeration blower modernization. CompactLogix L33ER installed for VFD blower control
+#         and dissolved oxygen PID. Connected directly to existing flat switch -- no
+#         segmentation added. New Ethernet-native PLC inherits the flat network risk.
+#   2018: State compliance audit. Managed switch with VLAN 30 (ww-level3) added for SCADA
+#         server. Only properly segmented piece of the facility.
+#   2022: Cradlepoint IBR600 cellular modem installed by blower vendor for predictive
+#         maintenance (blower_run_hours register on ww-plc-03). Connected to ww-flat with
+#         default credentials (admin/admin) unchanged. Exposes entire ww-flat network to
+#         internet. Still active four years after "temporary" installation.
+#
+# Addressing conventions (critical for simulation fidelity):
+#   ww-plc-01 (SLC-500/05, ww-influent variant): ONE-BASED addressing via ProSoft MVI46-MCM
+#   ww-plc-02 (SLC-500/05, ww-effluent variant): ONE-BASED addressing via ProSoft MVI46-MCM
+#   ww-plc-03 (CompactLogix L33ER, ww-aeration variant): ZERO-BASED addressing
+#
+# [OT-REVIEW] DH-485 vs Modbus RTU protocol distinction:
+# ww-plc-01 and ww-plc-02 natively speak DH-485 (Data Highway 485) on Channel 0.
+# DH-485 is an Allen-Bradley proprietary protocol -- it is NOT Modbus over RS-485 wire.
+# RS-485 is the electrical standard; DH-485 and Modbus RTU are two different PROTOCOLS
+# that can both run on RS-485 physical layers. Sending Modbus RTU frames to the SLC's
+# native Channel 0 port will receive no response.
+# Modbus RTU capability is provided by ProSoft MVI46-MCM communication modules in the PLC
+# chassis. The Moxa NPort 5150 (ww-gw-01, 192.168.10.20:5063) passes Modbus RTU frames
+# to the ProSoft module -- the Moxa does NOT speak DH-485. The protocol chain is:
+#   SCADA master -> Modbus TCP -> Moxa NPort 5150 -> Modbus RTU -> ProSoft MVI46-MCM
+#   -> SLC internal backplane read of N7:/B3: data files
+# The ProSoft module maps SLC data files (N7:0, N7:1, ...) to Modbus holding registers
+# 1, 2, ... (one-based). IEEE 754 floats are NOT used; registers are 16-bit scaled integers.
+#
+# ISA-5.1 tagging principle applied throughout:
+# - Transmitter-suffix tags (FT, LT, PT, TT, AT, RT, PDT, ST, IT): read-only measurements
+# - Controller-suffix tags (AIC, KIC, SC): writable setpoints commanding actuators
+# - HS: SCADA-initiated discrete commands (per project convention)
+# - run: project extension for binary coil run/stop commands
+# - FQ: flow quantity totalizer (daily influent for NPDES daily reporting)
+# - RT: Radiation Transmitter (radiometric UV transmittance at 254nm, not analytical AT)
+#
+# Key attack surfaces documented at instrument level (see also device atom comments):
+# - AIC-201 (do_setpoint): PRIMARY attack surface; writing 0.0-0.5 mg/L causes anoxic
+#   conditions; PLC reduces blower speed to match spoofed setpoint; biomass crashes;
+#   recovery takes days to weeks
+# - run-P-302 (was_pump): uncontrolled wasting destroys activated sludge inventory
+# - FQ-101 (influent_flow_total): false NPDES daily reporting (writable daily totalizer)
+# - KIC-101 (sludge_pump_cycle_time): stops primary sludge withdrawal (0 = pump stopped)
+#
+# Known gaps (see SOW-024.0 technical debt):
+# - td-052: blower_run_hours (HR11) not mapped -- maintenance counter, not process instrument
+# - td-053: permit_interlock_status (HR8, ww-plc-02) not mapped -- PLC-internal safety logic
+schema_version: "0.1"
+
+process:
+  id: "brownfield-wastewater"
+  name: "Brownfield Wastewater Treatment Plant"
+  description: >
+    Three-stage activated sludge municipal wastewater treatment process: influent screening
+    and primary clarification (1997 SLC-500), aerobic biological treatment with dissolved
+    oxygen control (2013 CompactLogix), and secondary clarification with UV disinfection and
+    NPDES-permitted discharge (1997 SLC-500). Cradlepoint cellular modem (2022) provides
+    unintended internet exposure to the flat OT network via blower vendor remote access.
+  flow_direction: "horizontal"
+
+stages:
+  # ---------------------------------------------------------------------------
+  # Stage 1: Influent and Primary Treatment
+  # Controller: ww-plc-01 (SLC-500/05, ww-influent variant, ONE-BASED addressing)
+  # [OT-REVIEW] Native protocol: DH-485. Modbus RTU via ProSoft MVI46-MCM module.
+  # Accessed via ww-gw-01 (Moxa NPort 5150, 192.168.10.20:5063), serial unit ID 1.
+  # The Moxa does NOT speak DH-485; it passes Modbus RTU frames to the ProSoft module.
+  # Registers are 16-bit scaled integers (N7: integer file, one-based ProSoft mapping).
+  # Era: 1997 original installation. No upgrades to this PLC since commissioning.
+  # ---------------------------------------------------------------------------
+  - id: "influent-primary"
+    name: "Influent and Primary Treatment"
+    controller:
+      placement: "ww-plc-01"
+      device: "slc-500-05"
+    equipment:
+      # Influent Flow Meter: magnetic flow meter at plant headworks.
+      # This is the regulatory compliance measurement point for daily influent flow.
+      # FQ-101 (influent_flow_total) is a writable totalizer reset by operators at
+      # midnight for NPDES daily reporting -- an attack surface for permit compliance fraud.
+      # AT-101 and TT-101 monitor influent quality; temperatures below 55 degF impair
+      # downstream biological treatment in the aeration basin.
+      - id: "influent-meter"
+        type: "meter"
+        label: "Influent Flow Meter"
+        era: 1997
+        instruments:
+          - tag: "FT-101"
+            name: "Influent Flow Rate"
+            isa_type: "FT"
+            # Read-only instantaneous influent flow rate at plant headworks.
+            # Scale: 0-5000 GPM for a 2-7 MGD municipal plant.
+            placement: "ww-plc-01"
+            register:
+              type: "holding"
+              address: 1         # HR1 = influent_flow_rate (one-based ProSoft MVI46-MCM convention)
+            unit: "GPM"
+            scale: [0.0, 5000.0]
+
+          - tag: "FQ-101"
+            name: "Influent Flow Total"
+            isa_type: "FQ"
+            # Writable daily influent flow totalizer. Operators reset to zero at midnight
+            # for NPDES daily reporting. FQ = Flow Quantity per ISA-5.1.
+            # ATTACK SURFACE: writing a false value to this register falsifies the NPDES
+            # permit compliance record for daily influent volume. A false low reading hides
+            # regulatory exceedances; a false high reading triggers unnecessary regulatory scrutiny.
+            placement: "ww-plc-01"
+            register:
+              type: "holding"
+              address: 2         # HR2 = influent_flow_total (one-based ProSoft MVI46-MCM convention)
+            unit: "gal x1000"
+            scale: [0.0, 99999.0]
+
+          - tag: "AT-101"
+            name: "Influent pH"
+            isa_type: "AT"
+            # Inline pH transmitter at headworks. Normal influent: 6.5-7.5 (domestic sewage).
+            # Bidirectional thresholds: industrial discharge events cause excursions in both
+            # directions. WL:5.5, AL:4.5 (low-side acid discharge). W:9.0, A:10.0 (high-side
+            # caustic discharge). Ordering: AL:4.5 < WL:5.5 < W:9.0 < A:10.0 (correct).
+            placement: "ww-plc-01"
+            register:
+              type: "holding"
+              address: 8         # HR8 = influent_ph (one-based ProSoft MVI46-MCM convention)
+            unit: "pH"
+            scale: [0.0, 14.0]
+            thresholds:
+              alarm_low: 4.5
+              warning_low: 5.5
+              warning: 9.0
+              alarm: 10.0
+
+          - tag: "TT-101"
+            name: "Influent Temperature"
+            isa_type: "TT"
+            # Influent wastewater temperature. Normal range: 55-90 degF.
+            # [OT-REVIEW] Scale 40-90 degF: wastewater never reaches 32 degF (building
+            # plumbing provides thermal buffering). WL:55 (warning low): temperatures below
+            # 55 degF significantly impair nitrifying bacteria in the aeration basin,
+            # reducing biological treatment effectiveness. Low-side threshold only.
+            placement: "ww-plc-01"
+            register:
+              type: "holding"
+              address: 9         # HR9 = influent_temperature (one-based ProSoft MVI46-MCM convention)
+            unit: "degF"
+            scale: [40.0, 90.0]
+            thresholds:
+              warning_low: 55.0
+
+          - tag: "HS-101"
+            name: "Influent Gate"
+            isa_type: "HS"
+            # Writable coil for influent gate position (0=closed, 1=open).
+            # Closing the gate diverts influent flow to the bypass channel during maintenance.
+            # This is an operational control, not an emergency shutdown.
+            placement: "ww-plc-01"
+            register:
+              type: "coil"
+              address: 4         # Coil4 = influent_gate (one-based ProSoft MVI46-MCM convention)
+            unit: "bool"
+
+      # Mechanical Bar Screen: rotating screen that removes large solids (rags, plastic,
+      # debris) from influent before it reaches the treatment process. Differential pressure
+      # (PDT-101) drives the automatic rake cycle; high dP indicates a clogged screen
+      # requiring manual clearance.
+      - id: "bar-screen-01"
+        type: "screen"
+        label: "Mechanical Bar Screen"
+        era: 1997
+        instruments:
+          - tag: "PDT-101"
+            name: "Bar Screen Differential"
+            isa_type: "PDT"
+            # Differential pressure across bar screen (clean vs. clogged indicator).
+            # PLC automatically commands rake motor (run-M-101) when dP exceeds ~6 in WC.
+            # W:6.0 (auto-rake trigger), A:10.0 (plugged screen; manual clearance required).
+            placement: "ww-plc-01"
+            register:
+              type: "holding"
+              address: 3         # HR3 = bar_screen_differential (one-based ProSoft MVI46-MCM convention)
+            unit: "in WC"
+            scale: [0.0, 12.0]
+            thresholds:
+              warning: 6.0
+              alarm: 10.0
+
+          - tag: "run-M-101"
+            name: "Bar Screen Motor"
+            isa_type: "run"
+            # Writable coil for bar screen rake motor run command (0=stop, 1=run).
+            # Normally auto-commanded by PLC ladder logic when dP exceeds threshold.
+            # SCADA override: operators can manually force the rake cycle via this coil.
+            placement: "ww-plc-01"
+            register:
+              type: "coil"
+              address: 1         # Coil1 = bar_screen_motor (one-based ProSoft MVI46-MCM convention)
+            unit: "bool"
+
+      # Grit Removal Chamber: gravity settling basin that removes inorganic grit (sand,
+      # gravel, coffee grounds) before primary clarification. Grit damages pumps and
+      # accumulates in clarifiers if not removed. Level monitored continuously;
+      # grit pump auto-commanded when chamber level exceeds 80%.
+      - id: "grit-chamber-01"
+        type: "basin"
+        label: "Grit Removal Chamber"
+        era: 1997
+        instruments:
+          - tag: "LT-101"
+            name: "Grit Chamber Level"
+            isa_type: "LT"
+            # Grit chamber level as a percentage of chamber volume.
+            # W:80, A:95: high-side thresholds trigger grit pump.
+            # Grit accumulation rate depends on influent source characteristics (stormwater, industrial).
+            placement: "ww-plc-01"
+            register:
+              type: "holding"
+              address: 4         # HR4 = grit_chamber_level (one-based ProSoft MVI46-MCM convention)
+            unit: "%"
+            scale: [0.0, 100.0]
+            thresholds:
+              warning: 80.0
+              alarm: 95.0
+
+          - tag: "run-P-101"
+            name: "Grit Pump"
+            isa_type: "run"
+            # Writable coil for grit chamber pump run command (0=stop, 1=run).
+            # Auto-commanded by PLC when chamber level exceeds 80%.
+            placement: "ww-plc-01"
+            register:
+              type: "coil"
+              address: 2         # Coil2 = grit_pump (one-based ProSoft MVI46-MCM convention)
+            unit: "bool"
+
+      # Primary Clarifier: large open concrete basin providing gravity settlement of
+      # settleable suspended solids (primary sludge). Rotating scraper collects settled
+      # sludge into the sludge hopper for withdrawal by the primary sludge pump.
+      # Rising blanket depth (LT-103) or clarifier level (LT-102) indicates insufficient
+      # sludge withdrawal -- a slow-burn process upset recoverable in days.
+      #
+      # KIC-101 (sludge_pump_cycle_time) is the defining writable setpoint for this
+      # equipment. Writing 0 stops sludge withdrawal; the blanket rises within hours and
+      # solids carry over to the aeration basin, destroying the activated sludge system.
+      - id: "primary-clarifier"
+        type: "clarifier"
+        label: "Primary Clarifier"
+        era: 1997
+        instruments:
+          - tag: "LT-102"
+            name: "Primary Clarifier Level"
+            isa_type: "LT"
+            # Clarifier level relative to weir elevation (normal: minimal variation <1 ft).
+            # Rising level indicates reduced sludge withdrawal or abnormally high influent solids.
+            placement: "ww-plc-01"
+            register:
+              type: "holding"
+              address: 5         # HR5 = primary_clarifier_level (one-based ProSoft MVI46-MCM convention)
+            unit: "ft"
+            scale: [0.0, 5.0]
+
+          - tag: "LT-103"
+            name: "Primary Sludge Blanket Depth"
+            isa_type: "LT"
+            # Sludge blanket depth in the primary clarifier (distance from floor to top of blanket).
+            # W:5.0, A:7.0: when blanket rises above 5 ft, solids begin to carry over the weir
+            # into secondary treatment. Above 7 ft the clarifier is effectively failed.
+            # This is the observable consequence of KIC-101 (sludge_pump_cycle_time) being set to 0.
+            placement: "ww-plc-01"
+            register:
+              type: "holding"
+              address: 6         # HR6 = sludge_blanket_depth (one-based ProSoft MVI46-MCM convention)
+            unit: "ft"
+            scale: [0.0, 8.0]
+            thresholds:
+              warning: 5.0
+              alarm: 7.0
+
+          - tag: "KIC-101"
+            name: "Sludge Pump Cycle Time"
+            isa_type: "KIC"
+            # Writable sludge pump cycle time setpoint (minutes per run cycle).
+            # KIC = Time Indicating Controller per ISA-5.1 (K=time, IC=indicating controller).
+            # 0=pump stopped, 120=maximum continuous run.
+            # ATTACK SURFACE: writing 0 stops sludge withdrawal entirely. The primary sludge
+            # blanket rises slowly (hours) -- this is a slow-burn attack vector. By the time
+            # operators notice LT-103 rising, solids are already carrying over into secondary
+            # treatment. Recovery (resetting biological process) takes days to remediate.
+            placement: "ww-plc-01"
+            register:
+              type: "holding"
+              address: 7         # HR7 = sludge_pump_cycle_time (one-based ProSoft MVI46-MCM convention)
+            unit: "min"
+            scale: [0.0, 120.0]
+
+          - tag: "run-P-102"
+            name: "Primary Sludge Pump"
+            isa_type: "run"
+            # Writable coil for primary sludge withdrawal pump (0=stop, 1=run).
+            # Controlled by KIC-101 setpoint; operators can also manually override via this coil.
+            placement: "ww-plc-01"
+            register:
+              type: "coil"
+              address: 3         # Coil3 = primary_sludge_pump (one-based ProSoft MVI46-MCM convention)
+            unit: "bool"
+
+  # ---------------------------------------------------------------------------
+  # Stage 2: Aeration
+  # Controller: ww-plc-03 (CompactLogix L33ER, ww-aeration variant, ZERO-BASED addressing)
+  # 2013 blower modernization -- Ethernet-native PLC on ww-flat (192.168.10.30:5062).
+  # Connected directly to the existing flat unmanaged switch without segmentation.
+  #
+  # [OT-REVIEW] CRADLEPOINT INTERNET EXPOSURE ORIGIN:
+  # blower_run_hours (HR11 = address 11 on ww-plc-03, ww-aeration variant) is a predictive
+  # maintenance counter, NOT a process instrument. It is not mapped below. The blower vendor
+  # installed the Cradlepoint IBR600 cellular modem (ww-modem-01, 192.168.10.99, 2022)
+  # specifically to read this single register for predictive maintenance scheduling.
+  # The vendor's remote access traverses the ww-flat unmanaged network segment.
+  # Because ww-plc-03 is on ww-flat with no segmentation, the Cradlepoint's WAN connection
+  # makes EVERY register on ww-plc-03 (and every other device on ww-flat) reachable from
+  # the internet. This is the origin of the facility's internet exposure. A single vendor
+  # convenience decision in 2022 created a persistent WAN path to all PLCs on the flat network.
+  # td-052: blower_run_hours is intentionally not mapped as a process instrument.
+  # ---------------------------------------------------------------------------
+  - id: "aeration"
+    name: "Aeration"
+    controller:
+      placement: "ww-plc-03"
+      device: "compactlogix-l33er"
+    equipment:
+      # Aeration Basin: open concrete basin containing activated sludge (mixed liquor).
+      # The biological core of the treatment process: aerobic bacteria consume organic matter
+      # when supplied with dissolved oxygen from the blower system. Target DO: 2.0 mg/L.
+      # MLSS (AT-202) and SOUR (AT-203) are the primary biological health indicators:
+      # MLSS below 1000 mg/L = under-seeded; SOUR near zero = dead or inhibited sludge.
+      #
+      # AIC-201 (do_setpoint) is the PRIMARY attack surface for this facility. The PLC's
+      # dissolved oxygen PID loop reduces blower speed to match a spoofed low setpoint.
+      # Writing 0.0-0.5 mg/L creates anoxic conditions without any operator-visible alarm
+      # (DO appears to track the setpoint correctly). Biomass crashes below 1.0 mg/L.
+      # Recovery after anoxic event: days to weeks of biological recovery.
+      - id: "aeration-basin"
+        type: "basin"
+        label: "Aeration Basin"
+        era: 1997
+        instruments:
+          # --- ww-plc-03 instruments (CompactLogix, ww-aeration, ZERO-BASED) ---
+          - tag: "AIC-201"
+            name: "Dissolved Oxygen Setpoint"
+            isa_type: "AIC"
+            # Writable dissolved oxygen setpoint for the blower PID control loop.
+            # AIC = Analyzer Indicating Controller per ISA-5.1 (A=analysis, IC=indicating controller).
+            # Normal setpoint: 2.0 mg/L. PLC's PID adjusts blower speed to maintain this level.
+            # PRIMARY ATTACK SURFACE: writing 0.0-0.5 mg/L fools the PID into reducing blower
+            # speed to near zero while DO crashes. Activated sludge bacteria die in anoxic
+            # conditions (DO < 1.0 mg/L = dead zone). Recovery takes days to weeks.
+            # The attack is covert: AT-201 (actual DO) will track toward the spoofed setpoint,
+            # making the process appear to be functioning normally to naive operators.
+            placement: "ww-plc-03"
+            register:
+              type: "holding"
+              address: 2         # HR2 = do_setpoint (zero-based CompactLogix convention)
+            unit: "mg/L"
+            scale: [0.0, 8.0]
+
+          - tag: "AT-201"
+            name: "Dissolved Oxygen"
+            isa_type: "AT"
+            # Read-only inline DO probe measurement. Target: 2.0 mg/L (aerobic).
+            # WL:1.0 (approaching anoxic threshold), AL:0.5 (anoxic -- biomass crash imminent).
+            # W:4.0 (energy waste -- blowers are 50-70% of plant electricity cost at max speed).
+            # Ordering: AL:0.5 < WL:1.0 < W:4.0 (correct).
+            placement: "ww-plc-03"
+            register:
+              type: "holding"
+              address: 3         # HR3 = dissolved_oxygen (zero-based CompactLogix convention)
+            unit: "mg/L"
+            scale: [0.0, 12.0]
+            thresholds:
+              alarm_low: 0.5
+              warning_low: 1.0
+              warning: 4.0
+
+          - tag: "LT-201"
+            name: "Aeration Basin Level"
+            isa_type: "LT"
+            # Aeration basin water surface elevation. Typical municipal SWD: 10-15 ft.
+            # Level variation indicates imbalanced influent distribution between basins.
+            placement: "ww-plc-03"
+            register:
+              type: "holding"
+              address: 8         # HR8 = aeration_basin_level (zero-based CompactLogix convention)
+            unit: "ft"
+            scale: [0.0, 15.0]
+
+          - tag: "AT-202"
+            name: "Mixed Liquor Suspended Solids"
+            isa_type: "AT"
+            # MLSS concentration in the aeration basin (target: 2000-4000 mg/L).
+            # WL:1000 (under-seeded -- below minimum effective concentration), AL:500 (severely
+            # depleted -- treatment failure risk). Low-side thresholds only: high MLSS indicates
+            # potential clarifier overload but is less immediately critical.
+            # Ordering: AL:500 < WL:1000 (correct).
+            placement: "ww-plc-03"
+            register:
+              type: "holding"
+              address: 9         # HR9 = mlss (zero-based CompactLogix convention)
+            unit: "mg/L"
+            scale: [0.0, 10000.0]
+            thresholds:
+              alarm_low: 500.0
+              warning_low: 1000.0
+
+          - tag: "AT-203"
+            name: "Specific Oxygen Uptake Rate"
+            isa_type: "AT"
+            # SOUR (Specific Oxygen Uptake Rate) -- PLC-calculated biological activity indicator.
+            # Not a raw sensor reading: PLC derives SOUR from DO uptake rate and MLSS measurement.
+            # Near-zero SOUR indicates dead or severely inhibited sludge. Cannot be spoofed by
+            # replaying a Modbus write to this register alone -- attackers must also spoof source
+            # inputs (DO and MLSS) to make SOUR appear normal while the biology fails.
+            placement: "ww-plc-03"
+            register:
+              type: "holding"
+              address: 10        # HR10 = sour (zero-based CompactLogix convention)
+            unit: "mg O2/g MLSS/hr"
+            scale: [0.0, 30.0]
+
+          - tag: "HS-201"
+            name: "DO Control Enable"
+            isa_type: "HS"
+            # Writable coil enabling/disabling dissolved oxygen PID control (0=manual, 1=auto).
+            # When disabled, blower speed must be manually set via SC-201. Disabling DO control
+            # while the setpoint (AIC-201) is left at a low value forces manual blower operation.
+            placement: "ww-plc-03"
+            register:
+              type: "coil"
+              address: 3         # Coil3 = do_control_enable (zero-based CompactLogix convention)
+            unit: "bool"
+
+      # Aeration Blower: centrifugal blower (2013 modernization) supplying compressed air
+      # to diffusers on the aeration basin floor. Variable-frequency drive (VFD) allows
+      # speed modulation under PLC DO PID control. Blowers consume 50-70% of plant electricity.
+      #
+      # SC-201 (blower_speed_setpoint) is the SECONDARY attack surface: writing 0% with
+      # DO control disabled stalls the blower, creating anoxic conditions directly without
+      # the subtlety of the AIC-201 attack (which mimics normal PID behavior).
+      # Lead/lag configuration: blower-01 is lead (always runs); blower-02 is lag (starts at
+      # high DO demand). At least one blower must run when DO control is enabled.
+      - id: "blower-01"
+        type: "blower"
+        label: "Aeration Blower"
+        era: 2013
+        instruments:
+          - tag: "SC-201"
+            name: "Blower Speed Setpoint"
+            isa_type: "SC"
+            # Writable VFD speed setpoint (0-100%). SC = Speed Controller per ISA-5.1.
+            # PLC writes this register to command the VFD during DO PID control.
+            # SECONDARY ATTACK SURFACE: writing 0% with DO control disabled (HS-201=0)
+            # stalls the blower. Effective but less covert than the AIC-201 attack.
+            placement: "ww-plc-03"
+            register:
+              type: "holding"
+              address: 0         # HR0 = blower_speed_setpoint (zero-based CompactLogix convention)
+            unit: "%"
+            scale: [0.0, 100.0]
+
+          - tag: "ST-201"
+            name: "Blower Speed Feedback"
+            isa_type: "ST"
+            # Read-only VFD speed feedback (actual shaft speed reported from VFD).
+            # Distinct from SC-201 (setpoint). Teaches the PLC-VFD setpoint/feedback
+            # architecture: SC-201 is what the PLC commands, ST-201 is what the VFD executes.
+            placement: "ww-plc-03"
+            register:
+              type: "holding"
+              address: 1         # HR1 = blower_speed_feedback (zero-based CompactLogix convention)
+            unit: "RPM"
+            scale: [0.0, 3600.0]
+
+          - tag: "FT-201"
+            name: "Aeration Air Flow Rate"
+            isa_type: "FT"
+            # Read-only air flow from blower to aeration basin diffusers (SCFM).
+            # Standard cubic feet per minute -- US convention for blower applications.
+            placement: "ww-plc-03"
+            register:
+              type: "holding"
+              address: 4         # HR4 = air_flow_rate (zero-based CompactLogix convention)
+            unit: "SCFM"
+            scale: [0.0, 5000.0]
+
+          - tag: "PT-201"
+            name: "Blower Discharge Pressure"
+            isa_type: "PT"
+            # Blower discharge pressure at outlet header. Elevated pressure indicates
+            # clogged diffusers or closed distribution valves -- restricts air delivery
+            # to the basin while motor current increases (detectable via IT-201).
+            placement: "ww-plc-03"
+            register:
+              type: "holding"
+              address: 5         # HR5 = blower_discharge_pressure (zero-based CompactLogix convention)
+            unit: "PSI"
+            scale: [0.0, 15.0]
+
+          - tag: "TT-201"
+            name: "Blower Inlet Temperature"
+            isa_type: "TT"
+            # Blower inlet air temperature (ambient to heated). High inlet temperature reduces
+            # blower efficiency and increases motor load. W:100 (elevated inlet, efficiency impact).
+            # [OT-REVIEW] High inlet temperature is the relevant concern; low-side threshold
+            # not needed (cold air improves blower efficiency). Single high-side threshold.
+            placement: "ww-plc-03"
+            register:
+              type: "holding"
+              address: 6         # HR6 = blower_inlet_temperature (zero-based CompactLogix convention)
+            unit: "degF"
+            scale: [30.0, 120.0]
+            thresholds:
+              warning: 100.0
+
+          - tag: "IT-201"
+            name: "Blower Motor Current"
+            isa_type: "IT"
+            # Blower motor current draw (load indicator). IT = Current Transmitter per ISA-5.1.
+            # High current with low air flow (FT-201) indicates mechanical resistance,
+            # clogged diffusers, or a closed distribution valve. No thresholds defined
+            # (varies with speed; evaluation requires cross-reference with ST-201 and FT-201).
+            placement: "ww-plc-03"
+            register:
+              type: "holding"
+              address: 7         # HR7 = blower_motor_current (zero-based CompactLogix convention)
+            unit: "A"
+            scale: [0.0, 200.0]
+
+          - tag: "run-B-201"
+            name: "Blower 1 Run"
+            isa_type: "run"
+            # Writable coil for blower 1 VFD run command (0=stop, 1=run).
+            # Lead blower: must run when DO control is enabled. Stopping both blowers
+            # with DO control active causes an anoxic event identical to the AIC-201 attack.
+            placement: "ww-plc-03"
+            register:
+              type: "coil"
+              address: 0         # Coil0 = blower_1_run (zero-based CompactLogix convention)
+            unit: "bool"
+
+          - tag: "run-B-202"
+            name: "Blower 2 Run"
+            isa_type: "run"
+            # Writable coil for blower 2 VFD run command (0=stop, 1=run).
+            # Lag blower: starts when DO demand exceeds single-blower capacity.
+            placement: "ww-plc-03"
+            register:
+              type: "coil"
+              address: 1         # Coil1 = blower_2_run (zero-based CompactLogix convention)
+            unit: "bool"
+
+          - tag: "HS-202"
+            name: "Aeration Valve Auto"
+            isa_type: "HS"
+            # Writable coil for air distribution valve mode (0=manual, 1=auto).
+            # Auto mode allows PLC to balance airflow between basin zones via modulating valves.
+            placement: "ww-plc-03"
+            register:
+              type: "coil"
+              address: 2         # Coil2 = aeration_valve_auto (zero-based CompactLogix convention)
+            unit: "bool"
+
+  # ---------------------------------------------------------------------------
+  # Stage 3: Secondary Treatment and Discharge
+  # Controller: ww-plc-02 (SLC-500/05, ww-effluent variant, ONE-BASED addressing)
+  # [OT-REVIEW] Native protocol: DH-485. Modbus RTU via ProSoft MVI46-MCM module.
+  # Accessed via ww-gw-01 (Moxa NPort 5150, 192.168.10.20:5063), serial unit ID 2.
+  # Registers are 16-bit scaled integers (N7: integer file, one-based ProSoft mapping).
+  # Era: 1997 original installation. No upgrades to this PLC since commissioning.
+  #
+  # This PLC enforces the permit interlock before allowing effluent discharge.
+  # permit_interlock_status (HR8) is a read-only bitmask (not mapped -- td-053):
+  #   bit0=UV_system_active, bit1=flow_within_permit, bit2=NPDES_permit_active.
+  # All bits must be set before HS-302 (effluent_discharge_valve) can open.
+  # Single coil flip is insufficient for the discharge attack -- attacker must also
+  # spoof permit_interlock_status or disable the UV system (HS-301, coil3).
+  # ---------------------------------------------------------------------------
+  - id: "secondary-discharge"
+    name: "Secondary Treatment and Discharge"
+    controller:
+      placement: "ww-plc-02"
+      device: "slc-500-05"
+    equipment:
+      # Secondary Clarifier: final gravity settling of mixed liquor solids after aeration.
+      # Return activated sludge (RAS) is pumped back to the aeration basin to maintain
+      # the biological process. Waste activated sludge (WAS) is withdrawn for dewatering.
+      # Secondary clarifier failure produces turbid effluent that violates NPDES TSS limits.
+      - id: "secondary-clarifier"
+        type: "clarifier"
+        label: "Secondary Clarifier"
+        era: 1997
+        instruments:
+          - tag: "LT-301"
+            name: "Secondary Clarifier Level"
+            isa_type: "LT"
+            # Clarifier level relative to weir elevation (normal: minimal variation <1 ft).
+            # Rising level indicates poor solids settling or high RAS withdrawal rate.
+            placement: "ww-plc-02"
+            register:
+              type: "holding"
+              address: 2         # HR2 = secondary_clarifier_level (one-based ProSoft MVI46-MCM convention)
+            unit: "ft"
+            scale: [0.0, 5.0]
+
+          - tag: "FT-301"
+            name: "Return Activated Sludge Flow"
+            isa_type: "FT"
+            # RAS (Return Activated Sludge) flow rate from secondary clarifier underflow
+            # back to the aeration basin head. Typically 25-75% of influent flow.
+            # Maintains biological inventory in the aeration basin.
+            placement: "ww-plc-02"
+            register:
+              type: "holding"
+              address: 3         # HR3 = ras_flow (one-based ProSoft MVI46-MCM convention)
+            unit: "GPM"
+            scale: [0.0, 2500.0]
+
+          - tag: "FT-302"
+            name: "Waste Activated Sludge Flow"
+            isa_type: "FT"
+            # WAS (Waste Activated Sludge) flow rate -- sludge wasted from secondary system
+            # to dewatering. Typically 2-30 GPM for a 5 MGD plant. Maximum 100 GPM.
+            # WAS rate controls the sludge retention time (SRT) and thus biological performance.
+            placement: "ww-plc-02"
+            register:
+              type: "holding"
+              address: 4         # HR4 = was_flow (one-based ProSoft MVI46-MCM convention)
+            unit: "GPM"
+            scale: [0.0, 100.0]
+
+          - tag: "run-P-301"
+            name: "RAS Pump"
+            isa_type: "run"
+            # Writable coil for return activated sludge pump (0=stop, 1=run).
+            # RAS pump must run continuously during normal treatment operations.
+            # Stopping this pump causes sludge to accumulate in the secondary clarifier.
+            placement: "ww-plc-02"
+            register:
+              type: "coil"
+              address: 1         # Coil1 = ras_pump (one-based ProSoft MVI46-MCM convention)
+            unit: "bool"
+
+          - tag: "run-P-302"
+            name: "WAS Pump"
+            isa_type: "run"
+            # Writable coil for waste activated sludge pump (0=stop, 1=run).
+            # ATTACK SURFACE: The WAS pump runs continuously at full rate (50-100 GPM max).
+            # Uncontrolled wasting at 50-100 GPM over 24 hours removes the entire activated
+            # sludge inventory from the system. Biological treatment collapses once MLSS drops
+            # below the minimum viable concentration (approximately 500-1000 mg/L).
+            # Recovery requires re-seeding and days to weeks of biological rebuilding.
+            # NPDES violations begin within hours of DO crash as effluent TSS and ammonia
+            # rise above permit limits. Environmental consequences: untreated sewage discharge.
+            placement: "ww-plc-02"
+            register:
+              type: "coil"
+              address: 2         # Coil2 = was_pump (one-based ProSoft MVI46-MCM convention)
+            unit: "bool"
+
+      # UV Disinfection System: 254nm UV lamps providing pathogen inactivation of secondary
+      # effluent before discharge. UV transmittance (RT-301) measures effluent clarity and
+      # directly determines UV dose effectiveness. Low transmittance = poor treatment quality.
+      #
+      # [OT-REVIEW] RT-301 uses RT (Radiation Transmitter), NOT AT (Analyzer Transmitter).
+      # UV transmittance at 254nm is a radiometric measurement (radiant power transmitted
+      # through the effluent sample), consistent with RT-203 in the water treatment reference
+      # implementation. AT is reserved for water chemistry measurements (pH, turbidity, dissolved
+      # species). Using AT here would be an ISA-5.1 categorization error.
+      #
+      # HS-301 (uv_disinfection_enable) is step one of the discharge valve attack chain:
+      # disabling UV clears permit_interlock bit0, which then allows permit interlock bypass.
+      - id: "uv-system-01"
+        type: "uv_system"
+        label: "UV Disinfection"
+        era: 1997
+        instruments:
+          - tag: "RT-301"
+            name: "UV Transmittance"
+            isa_type: "RT"
+            # Effluent UV transmittance at 254nm (effluent clarity indicator, 0-100%).
+            # RT = Radiation Transmitter per ISA-5.1. Radiometric measurement of light
+            # transmission through a 1cm sample path; NOT an analytical chemistry measurement.
+            # WL:55, AL:40: low-side thresholds only. Below 55% indicates poor treatment quality
+            # and reduced UV dose; below 40% the UV system cannot achieve adequate disinfection.
+            # Ordering: AL:40 < WL:55 (correct -- alarm is more severe than warning).
+            placement: "ww-plc-02"
+            register:
+              type: "holding"
+              address: 7         # HR7 = uv_transmittance (one-based ProSoft MVI46-MCM convention)
+            unit: "%"
+            scale: [0.0, 100.0]
+            thresholds:
+              alarm_low: 40.0
+              warning_low: 55.0
+
+          - tag: "HS-301"
+            name: "UV Disinfection Enable"
+            isa_type: "HS"
+            # Writable coil enabling/disabling UV disinfection system (0=off, 1=on).
+            # Disabling UV is STEP ONE of the discharge valve attack chain: with UV off,
+            # permit_interlock_status bit0 (UV_system_active) clears. Once this bit clears,
+            # the PLC permit interlock logic will prevent HS-302 from opening until UV is
+            # restored. Combined with permit_interlock spoofing, an attacker can achieve
+            # discharge of inadequately disinfected effluent.
+            placement: "ww-plc-02"
+            register:
+              type: "coil"
+              address: 3         # Coil3 = uv_disinfection_enable (one-based ProSoft MVI46-MCM convention)
+            unit: "bool"
+
+      # Effluent Outfall: final discharge measurement and control point.
+      # FT-303 (effluent flow rate) is the mass balance check against FT-101 (influent).
+      # AT-302 (TSS) and AT-303 (ammonia) are the two primary NPDES compliance analytes.
+      # HS-302 (discharge valve) is protected by the permit interlock logic -- a single
+      # coil flip is insufficient without also satisfying or spoofing permit_interlock_status.
+      - id: "effluent-outfall"
+        type: "meter"
+        label: "Effluent Discharge Point"
+        era: 1997
+        instruments:
+          - tag: "FT-303"
+            name: "Effluent Flow Rate"
+            isa_type: "FT"
+            # Final effluent flow rate at discharge point. Should approximately match
+            # influent flow rate (FT-101) for water mass balance. Significant deviation
+            # indicates flow diversion, bypass, or meter malfunction.
+            placement: "ww-plc-02"
+            register:
+              type: "holding"
+              address: 1         # HR1 = effluent_flow_rate (one-based ProSoft MVI46-MCM convention)
+            unit: "GPM"
+            scale: [0.0, 5000.0]
+
+          - tag: "AT-302"
+            name: "Effluent Total Suspended Solids"
+            isa_type: "AT"
+            # Effluent TSS -- primary NPDES compliance analyte.
+            # Permit typically requires <30 mg/L (secondary treatment standard).
+            # W:25, A:30: alarm at permit limit. Ordering: W:25 < A:30 (correct).
+            placement: "ww-plc-02"
+            register:
+              type: "holding"
+              address: 5         # HR5 = effluent_tss (one-based ProSoft MVI46-MCM convention)
+            unit: "mg/L"
+            scale: [0.0, 50.0]
+            thresholds:
+              warning: 25.0
+              alarm: 30.0
+
+          - tag: "AT-303"
+            name: "Effluent Ammonia Nitrogen"
+            isa_type: "AT"
+            # Effluent ammonia nitrogen from online ion-selective electrode analyzer.
+            # [OT-REVIEW] This is an ISE measurement, NOT a BOD measurement. BOD is a 5-day
+            # lab test and is NOT available as a real-time PLC register. Ammonia nitrogen
+            # is a standard real-time effluent quality analyte appropriate for online PLC monitoring.
+            # No thresholds defined in this SOW (permit limits vary by receiving water body).
+            placement: "ww-plc-02"
+            register:
+              type: "holding"
+              address: 6         # HR6 = effluent_ammonia_nitrogen (one-based ProSoft MVI46-MCM convention)
+            unit: "mg/L"
+            scale: [0.0, 30.0]
+
+          - tag: "HS-302"
+            name: "Effluent Discharge Valve"
+            isa_type: "HS"
+            # Writable coil for effluent discharge valve (0=closed, 1=open).
+            # Permit interlock logic in ww-plc-02 prevents this coil from opening unless
+            # permit_interlock_status (HR8, td-053) has all bits set:
+            #   bit0=UV_system_active, bit1=flow_within_permit, bit2=NPDES_permit_active.
+            # A single coil write to HS-302 is insufficient for a discharge attack.
+            # The attacker must also either spoof HR8 or disable UV (HS-301) as a first step.
+            placement: "ww-plc-02"
+            register:
+              type: "coil"
+              address: 4         # Coil4 = effluent_discharge_valve (one-based ProSoft MVI46-MCM convention)
+            unit: "bool"
+
+# Physical process connections -- main flow path from influent to discharge.
+# blower-to-basin connection uses type "duct" (air delivery from blower to basin diffusers),
+# not "pipe" (liquid process connections). This teaches trainees the blower/diffuser air supply path.
+connections:
+  - from: "influent-meter"
+    to: "bar-screen-01"
+    type: "pipe"
+    label: "Raw influent to screening"
+
+  - from: "bar-screen-01"
+    to: "grit-chamber-01"
+    type: "pipe"
+    label: "Screened influent to grit removal"
+
+  - from: "grit-chamber-01"
+    to: "primary-clarifier"
+    type: "pipe"
+    label: "Degritted flow to primary settlement"
+
+  - from: "primary-clarifier"
+    to: "aeration-basin"
+    type: "pipe"
+    label: "Primary effluent to aeration"
+
+  - from: "blower-01"
+    to: "aeration-basin"
+    type: "duct"
+    label: "Compressed air to basin diffusers"
+
+  - from: "aeration-basin"
+    to: "secondary-clarifier"
+    type: "pipe"
+    label: "Mixed liquor to secondary settlement"
+
+  - from: "secondary-clarifier"
+    to: "uv-system-01"
+    type: "pipe"
+    label: "Secondary effluent to UV disinfection"
+
+  - from: "uv-system-01"
+    to: "effluent-outfall"
+    type: "pipe"
+    label: "Disinfected effluent to discharge"
+
+# Network context: security-relevant connectivity overlaying the plant topology.
+# The Cradlepoint cellular modem is the defining security characteristic of this facility.
+# ww-gw-01 (Moxa serial gateway) is infrastructure, not a security-relevant WAN path.
+network_context:
+  - id: "cellular-modem"
+    type: "internet_gateway"
+    label: "Cradlepoint Cellular WAN"
+    era: 2022
+    placement: "ww-modem-01"
+    # Installed 2022 by blower vendor for predictive maintenance. NAT enabled.
+    # Reads blower_run_hours register (HR11) on ww-plc-03 via ww-flat network.
+    # Default credentials (admin/admin) never changed. Still active 4+ years after
+    # "temporary" installation. The vendor's remote access traverses the entire ww-flat
+    # segment, making every register on ww-plc-03, ww-plc-01, ww-plc-02, and ww-gw-01
+    # reachable from the internet through the cellular link.
+    # See Cradlepoint attack chain comment in Stage 2 for origin of internet exposure.
+    warning: "Vendor remote access to OT flat network. Default credentials never changed."
+    notes: >
+      Installed 2022 by blower vendor for predictive maintenance. NAT enabled. Reads
+      blower_run_hours register on ww-plc-03 via ww-flat network. Still active 4+ years
+      after "temporary" installation.

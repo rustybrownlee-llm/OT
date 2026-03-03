@@ -34,6 +34,11 @@ var isaInstrumentPrefixes = map[string]bool{
 	"FIC": true, // Flow Indicating Controller -- writable flow setpoint (ISA-5.1 suffix "IC" = indicating controller)
 	"RT":  true, // Radiation Transmitter -- UV lamp intensity from photodiode (not analytical; ISA-5.1 suffix "T")
 	"LS":  true, // Level Switch -- discrete float switch or level alarm contact (ISA-5.1 suffix "S")
+	// Pipeline and wastewater additions (SOW-024.0):
+	"ZT":  true, // Position Transmitter -- analog valve position feedback 0-100% (ISA-5.1 Z=position, T=transmitter)
+	"FQ":  true, // Flow Quantity / Totalizer -- accumulated volume (ISA-5.1 F=flow, Q=quantity/integrate); custody transfer and NPDES daily reporting
+	"AIC": true, // Analyzer Indicating Controller -- writable analytical setpoint (ISA-5.1 A=analysis, IC=indicating controller); e.g. dissolved oxygen setpoint
+	"KIC": true, // Time Indicating Controller -- writable timer setpoint (ISA-5.1 K=time, IC=indicating controller); e.g. sludge pump cycle time
 }
 
 // isaEquipmentDesignators lists ISA-5.1 equipment designators.
@@ -123,7 +128,7 @@ func checkISAType(processFile, field, isaType string, r *ValidationResult) {
 		Field: field,
 		Message: fmt.Sprintf(
 			"isa_type %q is not a recognized prefix; "+
-				"ISA-5.1 instrument prefixes: LT, FT, FIC, PT, TT, AT, AIT, PDT, RT, SC, LS, ST, VT, BT, IT, HS, ZS, ZSO, ZSC, FE; "+
+				"ISA-5.1 instrument prefixes: AIC, AIT, AT, BT, FE, FIC, FQ, FT, HS, IT, KIC, LS, LT, PDT, PT, RT, SC, ST, TT, VT, ZS, ZSC, ZSO, ZT; "+
 				"equipment designators: P, V, B, C, SV, GC, FM; "+
 				"project extension: run (not ISA-5.1 standard)",
 			isaType,

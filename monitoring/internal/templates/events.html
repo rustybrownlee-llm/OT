@@ -1,0 +1,49 @@
+{{define "content"}}
+<div class="row mb-3">
+    <div class="col">
+        <h2>Transaction Events</h2>
+        <p class="text-muted">Modbus protocol telemetry captured by the monitoring poller, most recent first.</p>
+    </div>
+</div>
+{{if not .EventsAvailable}}
+<div class="alert alert-secondary" role="alert">
+    Transaction logging not available.
+    The event store requires SOW-027.0 (Event Model and Store) and SOW-028.0 (Poller Transaction Logging) to be active.
+</div>
+{{else}}
+<form class="row g-2 mb-3" method="get" action="/events">
+    <div class="col-auto">
+        <select name="device" class="form-select form-select-sm">
+            <option value="">All Devices</option>
+            {{range .DeviceOptions}}
+            <option value="{{.}}"{{if eq $.FilterDevice .}} selected{{end}}>{{.}}</option>
+            {{end}}
+        </select>
+    </div>
+    <div class="col-auto">
+        <select name="fc" class="form-select form-select-sm">
+            <option value="">All Function Codes</option>
+            {{range .FCOptions}}
+            <option value="{{.Code}}"{{if eq $.FilterFC (printf "%d" .Code)}} selected{{end}}>FC{{.Code}} - {{.Name}}</option>
+            {{end}}
+        </select>
+    </div>
+    <div class="col-auto d-flex align-items-center gap-2">
+        <div class="form-check form-check-inline mb-0">
+            <input class="form-check-input" type="checkbox" name="write_only" value="1" id="write_only"{{if .FilterWrite}} checked{{end}}>
+            <label class="form-check-label" for="write_only">Writes Only</label>
+        </div>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+        <a href="/events" class="btn btn-sm btn-outline-secondary">Clear</a>
+    </div>
+</form>
+<div id="events-table"
+     hx-get="/partials/events-table?device={{.FilterDevice}}&fc={{.FilterFC}}&write_only={{if .FilterWrite}}1{{end}}&page={{.Page}}"
+     hx-trigger="every 5s"
+     hx-swap="innerHTML">
+    {{template "events_table_content" .}}
+</div>
+{{end}}
+{{end}}

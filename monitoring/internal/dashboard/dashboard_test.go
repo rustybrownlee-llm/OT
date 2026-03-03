@@ -21,7 +21,7 @@ func newTestDashboard(t *testing.T, apiHandler http.Handler) (*dashboard.Dashboa
 	}
 
 	client := dashboard.NewAPIClient(apiSrv.Listener.Addr().String())
-	dash := dashboard.NewDashboard(client, lib)
+	dash := dashboard.NewDashboard(client, lib, nil)
 	return dash, apiSrv
 }
 
@@ -324,7 +324,7 @@ func TestDashboard_LibraryUnavailable(t *testing.T) {
 
 	emptyLib, _ := dashboard.LoadDesignLibrary("/nonexistent/path")
 	client := dashboard.NewAPIClient(apiSrv.Listener.Addr().String())
-	dash := dashboard.NewDashboard(client, emptyLib)
+	dash := dashboard.NewDashboard(client, emptyLib, nil)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/design/devices", nil)

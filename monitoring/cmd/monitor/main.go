@@ -193,7 +193,7 @@ func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride stri
 
 	// Start the dashboard web server. The API client calls the API addr on loopback.
 	apiClient := dashboard.NewAPIClient(cfg.APIAddr)
-	dash := dashboard.NewDashboard(apiClient, lib)
+	dash := dashboard.NewDashboard(apiClient, lib, store)
 	dashSrv := &http.Server{
 		Addr:    cfg.DashboardAddr,
 		Handler: dash.Routes(),

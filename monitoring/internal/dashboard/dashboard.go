@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/rustybrownlee/ot-simulator/monitoring/internal/eventstore"
 	"github.com/rustybrownlee/ot-simulator/monitoring/internal/templates"
 )
 
@@ -27,6 +28,7 @@ import (
 type Dashboard struct {
 	api    *APIClient
 	lib    *DesignLibrary
+	events *eventstore.Store // direct SQLite access for event queries (SOW-029.0)
 	router chi.Router
 	// base holds the layout, nav, badge, and shared partial templates.
 	// Page-specific templates are added per-render to avoid name conflicts.
@@ -49,10 +51,13 @@ var svgFuncMap = template.FuncMap{
 
 // NewDashboard creates a Dashboard, parsing shared templates eagerly.
 // If template parsing fails, the program exits (template.Must pattern).
-func NewDashboard(api *APIClient, lib *DesignLibrary) *Dashboard {
+// The events parameter may be nil; when nil, event-related handlers return
+// a placeholder response rather than querying the store.
+func NewDashboard(api *APIClient, lib *DesignLibrary, events *eventstore.Store) *Dashboard {
 	d := &Dashboard{
-		api: api,
-		lib: lib,
+		api:    api,
+		lib:    lib,
+		events: events,
 	}
 	// Parse only the shared templates (layout, nav, badge, shared partials).
 	// Page-specific templates are cloned and extended per render.
@@ -66,6 +71,7 @@ func NewDashboard(api *APIClient, lib *DesignLibrary) *Dashboard {
 		"assets_table.html",
 		"asset_registers.html",
 		"alerts_table.html",
+		"events_table.html", // SOW-029.0: events partial for HTMX polling
 		"partials/topology_view.html",
 		"partials/process_symbols.html",
 		"partials/process_instruments.html",
@@ -97,6 +103,8 @@ func (d *Dashboard) buildRouter() chi.Router {
 	r.Get("/alerts", d.alertsHandler)
 	r.Get("/partials/alerts-table", d.alertsTableHandler)
 	r.Post("/alerts/{id}/acknowledge", d.alertAckHandler)
+	r.Get("/events", d.eventsHandler)
+	r.Get("/partials/events-table", d.eventsTableHandler)
 
 	// Topology section.
 	r.Get("/topology", d.topologyHandler)

@@ -1,6 +1,9 @@
 package eventstore
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // FuncCodeInfo describes a Modbus function code for display and classification.
 type FuncCodeInfo struct {
@@ -99,6 +102,20 @@ var exceptionCodeTable = map[uint8]ExceptionCodeInfo{
 		Name:        "Gateway Target Device Failed to Respond",
 		Description: "The gateway received the request but the target device on the downstream bus did not respond within the timeout. Common when a serial slave device is powered off or its address is wrong.",
 	},
+}
+
+// AllFuncCodes returns all known function code entries sorted by code number
+// ascending. Used to populate the FC filter dropdown in the dashboard. The
+// funcCodeTable var is unexported; this function provides sorted access.
+func AllFuncCodes() []FuncCodeInfo {
+	result := make([]FuncCodeInfo, 0, len(funcCodeTable))
+	for _, info := range funcCodeTable {
+		result = append(result, info)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Code < result[j].Code
+	})
+	return result
 }
 
 // LookupFuncCode returns canonical information about a Modbus function code.

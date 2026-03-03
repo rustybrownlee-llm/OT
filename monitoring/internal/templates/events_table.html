@@ -1,0 +1,76 @@
+{{define "events_table_content"}}
+{{if .Events}}
+<div class="table-responsive">
+    <table class="table table-bordered table-sm">
+        <thead class="table-dark">
+            <tr>
+                <th>Time</th>
+                <th>Device</th>
+                <th>FC</th>
+                <th>Register</th>
+                <th>Write</th>
+                <th>Value</th>
+                <th>Status</th>
+                <th>RTT</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .Events}}
+        <tr>
+            <td class="text-nowrap small">
+                <span title="{{.TimeFull}}">{{.TimeShort}}</span>
+            </td>
+            <td class="text-nowrap small">
+                <a href="/assets/{{.DeviceID}}" title="Unit ID: {{.UnitID}}"><code>{{.DeviceID}}</code></a>
+            </td>
+            <td class="text-nowrap small" title="{{.FCName}}">{{.FCShort}}</td>
+            <td class="text-nowrap small"><code>{{.AddrRange}}</code></td>
+            <td class="text-nowrap">
+                {{if .IsWrite}}<span class="badge bg-danger">WRITE</span>{{end}}
+            </td>
+            <td class="small">{{.WriteValues}}</td>
+            <td class="text-nowrap">
+                {{if .Success}}
+                <span class="badge bg-success">OK</span>
+                {{else}}
+                <span class="badge bg-danger">FAIL ({{.ExceptionName}})</span>
+                {{end}}
+            </td>
+            <td class="text-nowrap small">{{.RTTms}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+<div class="d-flex justify-content-between align-items-center mt-2">
+    <small class="text-muted">
+        {{if .TotalCount}}
+        Showing {{.ShowingFirst}}&ndash;{{.ShowingLast}} of {{.TotalCount}} events
+        {{else}}
+        0 events
+        {{end}}
+    </small>
+    <div class="btn-group btn-group-sm">
+        {{if .PrevPage}}
+        <a class="btn btn-outline-secondary"
+           href="/events?device={{.FilterDevice}}&fc={{.FilterFC}}&write_only={{if .FilterWrite}}1{{end}}&page={{.PrevPage}}">
+            Previous
+        </a>
+        {{else}}
+        <button class="btn btn-outline-secondary" disabled>Previous</button>
+        {{end}}
+        <span class="btn btn-outline-secondary disabled">Page {{.Page}} of {{.TotalPages}}</span>
+        {{if .NextPage}}
+        <a class="btn btn-outline-secondary"
+           href="/events?device={{.FilterDevice}}&fc={{.FilterFC}}&write_only={{if .FilterWrite}}1{{end}}&page={{.NextPage}}">
+            Next
+        </a>
+        {{else}}
+        <button class="btn btn-outline-secondary" disabled>Next</button>
+        {{end}}
+    </div>
+</div>
+{{else}}
+<div class="alert alert-secondary">No events match the current filters.</div>
+{{end}}
+{{end}}

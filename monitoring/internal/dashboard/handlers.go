@@ -74,6 +74,20 @@ func (d *Dashboard) alertAckHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<span class="badge bg-secondary">Acknowledged</span>`)
 }
 
+// eventsHandler renders the full transaction events page.
+// GET /events
+func (d *Dashboard) eventsHandler(w http.ResponseWriter, r *http.Request) {
+	data := d.buildEventsData(r)
+	d.render(w, "events.html", data)
+}
+
+// eventsTableHandler returns the HTMX partial for the events table.
+// GET /partials/events-table
+func (d *Dashboard) eventsTableHandler(w http.ResponseWriter, r *http.Request) {
+	data := d.buildEventsData(r)
+	d.renderPartial(w, "events_table_content", data)
+}
+
 // designDevicesHandler renders the device library listing.
 func (d *Dashboard) designDevicesHandler(w http.ResponseWriter, r *http.Request) {
 	data := d.buildDesignDevicesData()

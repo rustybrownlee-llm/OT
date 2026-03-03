@@ -72,6 +72,11 @@ func TestDetectFileType(t *testing.T) {
 			want: FileTypeEnvironment,
 		},
 		{
+			name: "process",
+			doc:  RawDocument{Process: &ProcessDoc{ID: "x"}},
+			want: FileTypeProcess,
+		},
+		{
 			name: "unknown",
 			doc:  RawDocument{},
 			want: FileTypeUnknown,

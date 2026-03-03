@@ -323,9 +323,11 @@ process:
         device: string          # references device atom ID (informational)
       equipment:                # physical equipment in this stage
         - id: string            # unique within this process
-          type: enum            # tank | pump | valve | blower | sensor_station |
-                                # chromatograph | gateway | uv_system | clarifier |
-                                # screen | compressor | meter
+          type: enum            # tank | basin | pump | valve | blower | analyzer_station |
+                                # chromatograph | uv_system | clarifier |
+                                # screen | compressor | meter | heat_exchanger
+                                # Note: "gateway" NOT valid here (use network_context per RD-1)
+                                # "basin" distinct from "tank" (aeration basins, equalization basins)
           label: string         # display name (e.g., "Intake Well")
           era: int              # optional: installation year (for wastewater era markers)
           instruments:           # sensors and actuators on this equipment
@@ -339,9 +341,11 @@ process:
               unit: string      # engineering unit (%, GPM, PSI, degF, mg/L, etc.)
               range: [min, max] # engineering value range
               scale: [min, max] # raw uint16 range (default [0, 16383] if omitted)
-              thresholds:       # optional alarm thresholds for color coding
-                warning: number # yellow above this value
-                alarm: number   # red above this value
+              thresholds:       # optional alarm thresholds for color coding (bidirectional)
+                warning: number      # high warning threshold
+                alarm: number        # high alarm threshold
+                warning_low: number  # low warning threshold (for levels, pressures)
+                alarm_low: number    # low alarm threshold (pump cavitation, tank empty)
 
   network_context:              # optional: security-relevant network elements overlaid on process view
     - id: string                # unique within this process
@@ -355,7 +359,7 @@ process:
   connections:                  # pipes/links between equipment
     - from: string              # equipment ID
       to: string                # equipment ID
-      type: enum                # pipe | serial | wireless
+      type: enum                # pipe | duct (physical process connections only; serial/wireless belong in network_context per RD-1)
       label: string             # optional flow description
 ```
 

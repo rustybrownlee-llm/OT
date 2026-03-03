@@ -20,6 +20,8 @@ const (
 	FileTypeNetwork
 	// FileTypeEnvironment means the YAML contains a top-level "environment:" key.
 	FileTypeEnvironment
+	// FileTypeProcess means the YAML contains a top-level "process:" key.
+	FileTypeProcess
 )
 
 // RawDocument holds the top-level YAML for type detection.
@@ -36,6 +38,11 @@ type RawDocument struct {
 	Networks      []NetworkRefDoc       `yaml:"networks"`
 	Placements    []PlacementDoc        `yaml:"placements"`
 	Boundaries    []BoundaryDoc         `yaml:"boundaries"` // Optional: network boundary state declarations (ADR-010 D4)
+	// Process schematic fields (ADR-009, Beta 0.5 milestone).
+	Process        *ProcessDoc         `yaml:"process"`
+	Stages         []StageDoc          `yaml:"stages"`
+	Connections    []ConnectionDoc     `yaml:"connections"`
+	NetworkContext []NetworkContextDoc `yaml:"network_context"`
 }
 
 // DeviceDoc represents the device: section of a device atom YAML.
@@ -165,6 +172,92 @@ type AdditionalNetDoc struct {
 	IP      string `yaml:"ip"`
 }
 
+// ProcessDoc represents the process: section of a process schematic YAML.
+type ProcessDoc struct {
+	ID            string `yaml:"id"`
+	Name          string `yaml:"name"`
+	Description   string `yaml:"description"`
+	FlowDirection string `yaml:"flow_direction"` // "horizontal" (default) or "vertical"
+}
+
+// StageDoc represents a stage in the process flow.
+type StageDoc struct {
+	ID         string         `yaml:"id"`
+	Name       string         `yaml:"name"`
+	Controller *ControllerDoc `yaml:"controller"`
+	Equipment  []EquipmentDoc `yaml:"equipment"`
+}
+
+// ControllerDoc optionally identifies the primary PLC for a stage.
+type ControllerDoc struct {
+	Placement string `yaml:"placement"`
+	Device    string `yaml:"device"`
+}
+
+// EquipmentDoc represents a physical piece of equipment.
+// Valid types: tank, basin, pump, valve, blower, analyzer_station, chromatograph,
+// uv_system, clarifier, screen, compressor, meter, heat_exchanger.
+// Note: "gateway" is NOT valid here -- gateways belong in NetworkContext per RD-1.
+// "basin" is distinct from "tank" (aeration basins, equalization basins).
+type EquipmentDoc struct {
+	ID          string          `yaml:"id"`
+	Type        string          `yaml:"type"`
+	Label       string          `yaml:"label"`
+	Era         *int            `yaml:"era"`
+	Instruments []InstrumentDoc `yaml:"instruments"`
+}
+
+// InstrumentDoc represents a sensor or actuator mapped to a Modbus register.
+type InstrumentDoc struct {
+	Tag        string        `yaml:"tag"`
+	Name       string        `yaml:"name"`
+	ISAType    string        `yaml:"isa_type"`
+	Placement  string        `yaml:"placement"`
+	Register   RegisterRef   `yaml:"register"`
+	Unit       string        `yaml:"unit"`
+	Range      []float64     `yaml:"range"`
+	Scale      []float64     `yaml:"scale"`
+	Thresholds *ThresholdDoc `yaml:"thresholds"`
+}
+
+// RegisterRef identifies a specific Modbus register on a device.
+type RegisterRef struct {
+	Type    string `yaml:"type"`    // "holding" or "coil"
+	Address int    `yaml:"address"`
+}
+
+// ThresholdDoc defines optional alarm thresholds for color coding.
+// Supports bidirectional thresholds: high (warning, alarm) and low (warning_low, alarm_low).
+// Level instruments (tanks, basins, clarifiers) need low thresholds for pump cavitation
+// and overflow protection. All fields are optional.
+type ThresholdDoc struct {
+	Warning    *float64 `yaml:"warning"`     // High warning threshold
+	Alarm      *float64 `yaml:"alarm"`       // High alarm threshold
+	WarningLow *float64 `yaml:"warning_low"` // Low warning threshold
+	AlarmLow   *float64 `yaml:"alarm_low"`   // Low alarm threshold
+}
+
+// ConnectionDoc represents a physical process connection between equipment.
+// Only physical process connections belong here: "pipe" (fluid/gas) and "duct" (air delivery).
+// Serial bus and wireless/WAN links belong on the topology page (RD-1) or in NetworkContext (RD-4).
+type ConnectionDoc struct {
+	From  string `yaml:"from"`
+	To    string `yaml:"to"`
+	Type  string `yaml:"type"`  // "pipe" or "duct"
+	Label string `yaml:"label"`
+}
+
+// NetworkContextDoc represents a security-relevant network element overlay (RD-4).
+type NetworkContextDoc struct {
+	ID        string `yaml:"id"`
+	Type      string `yaml:"type"`      // "wan_link", "internet_gateway", "wireless_bridge"
+	Label     string `yaml:"label"`
+	Era       *int   `yaml:"era"`
+	Placement string `yaml:"placement"`
+	Warning   string `yaml:"warning"`
+	Notes     string `yaml:"notes"`
+}
+
 // LoadFile reads a YAML file from disk and unmarshals it into a RawDocument.
 // Returns an error if the file cannot be read or is not valid YAML.
 func LoadFile(path string) (*RawDocument, error) {
@@ -188,6 +281,8 @@ func DetectFileType(doc *RawDocument) FileType {
 		return FileTypeNetwork
 	case doc.Environment != nil:
 		return FileTypeEnvironment
+	case doc.Process != nil:
+		return FileTypeProcess
 	default:
 		return FileTypeUnknown
 	}

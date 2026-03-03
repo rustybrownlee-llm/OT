@@ -264,8 +264,8 @@ The existing register value baseline (mean/stddev/min/max) is unchanged. The new
 | 3 | SOW-029.0 | Transaction Log Dashboard Page | SOW-028.0 | Complete | /events route with filterable HTMX table, FC/device dropdowns, write-only toggle, 4x/0x address notation |
 | 4 | SOW-030.0 | Communication Graph and Function Code Histograms | SOW-028.0 | Complete | /comms route with device matrix, per-device FC distribution histogram, DistinctFCs per device |
 | 5 | SOW-031.0 | CEF Syslog Forwarding | SOW-027.0 | Complete | Syslog emitter package, CEF formatter, 4-tier severity, UDP/TCP, makeEventHook helper |
-| 6 | SOW-032.0 | Event-Driven Baseline Extensions | SOW-028.0 | In Progress | write_to_readonly, new_source, fc_anomaly, poll_gap alert rules; RecordEvents method |
-| 7 | SOW-033.0 | Scenario 04 Phase A: Deploy Monitoring | SOW-029.0, SOW-030.0, SOW-032.0 | In Progress | Guided exercise: deploy, baseline, analyze, SIEM forward, detect |
+| 6 | SOW-032.0 | Event-Driven Baseline Extensions | SOW-028.0 | Complete | write_to_readonly, new_source, fc_anomaly, poll_gap alert rules; RecordEvents method |
+| 7 | SOW-033.0 | Scenario 04 Phase A: Deploy Active Monitoring | SOW-029.0, SOW-030.0, SOW-032.0 | In Progress | Guided exercise: deploy, baseline, analyze, SIEM forward, detect |
 
 ### Dependency Graph
 

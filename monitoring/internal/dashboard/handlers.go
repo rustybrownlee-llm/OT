@@ -215,3 +215,105 @@ func defaultEnvID(lib *DesignLibrary) string {
 	}
 	return ids[0]
 }
+
+// processHandler renders the full process view page with the default environment.
+// GET /process
+func (d *Dashboard) processHandler(w http.ResponseWriter, r *http.Request) {
+	envID := defaultProcessEnvID(d.lib)
+	data := d.buildProcessPageData(envID)
+	d.render(w, "process.html", data)
+}
+
+// processEnvHandler renders the process view for a specific environment.
+// GET /process/{env-id}
+func (d *Dashboard) processEnvHandler(w http.ResponseWriter, r *http.Request) {
+	envID := chi.URLParam(r, "env-id")
+	if _, ok := d.lib.Schematics[envID]; !ok {
+		http.NotFound(w, r)
+		return
+	}
+	data := d.buildProcessPageData(envID)
+	d.render(w, "process.html", data)
+}
+
+// processValuesPartialHandler returns HTMX OOB swap elements for live instrument
+// value refresh. Called every 2 seconds by the HTMX polling container in process.html.
+// [OT-REVIEW] Guard on schematic map lookup explicitly before calling data builders.
+// Return empty partial (not 404) when API is down or returns no data -- stale data
+// on the display is preferable to a broken display (OT availability principle).
+// A 404 would cause HTMX to stop polling, freezing the live view permanently.
+// GET /partials/process-values/{env-id}
+// PROTOTYPE-DEBT: [td-dashboard-055] Each 2-second poll makes a fresh BuildProcessViewData
+// call, hitting GetAssetRegisters once per unique placement. For greenfield-water-mfg
+// (3 PLCs), that is 3 outbound HTTP calls per poll. Acceptable for educational prototype.
+// TODO-FUTURE: Add server-side caching with TTL matching the poll interval (Beta 0.6+).
+func (d *Dashboard) processValuesPartialHandler(w http.ResponseWriter, r *http.Request) {
+	envID := chi.URLParam(r, "env-id")
+	sc, ok := d.lib.Schematics[envID]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	pv := d.BuildProcessViewData(envID, sc)
+	instruments := d.BuildProcessValuesPartial(pv)
+	d.renderPartial(w, "svg_instrument_oob", instruments)
+}
+
+// buildProcessPageData assembles ProcessViewPageData for the given environment ID.
+func (d *Dashboard) buildProcessPageData(envID string) ProcessViewPageData {
+	sc := d.lib.Schematics[envID]
+	pv := d.BuildProcessViewData(envID, sc)
+	return ProcessViewPageData{
+		Title:      "Process View",
+		ActivePage: "process",
+		EnvID:      envID,
+		Process:    pv,
+		AllEnvs:    buildProcessEnvSummaries(d.lib),
+	}
+}
+
+// defaultProcessEnvID returns the first environment alphabetically that has a
+// process schematic. Prefers "greenfield-water-mfg" if it has a schematic.
+// [OT-REVIEW] The process view default prefers "greenfield-water-mfg" because it
+// shows a modern Purdue-segmented environment with clean ISA-5.1 tagging and no
+// legacy complexity. This is the right starting point for a trainee seeing a process
+// view for the first time.
+func defaultProcessEnvID(lib *DesignLibrary) string {
+	if lib == nil {
+		return ""
+	}
+	if _, ok := lib.Schematics["greenfield-water-mfg"]; ok {
+		return "greenfield-water-mfg"
+	}
+	ids := sortedKeys(lib.Schematics)
+	if len(ids) == 0 {
+		return ""
+	}
+	return ids[0]
+}
+
+// buildProcessEnvSummaries returns EnvSummary entries only for environments
+// that have a process schematic, sorted alphabetically by ID.
+func buildProcessEnvSummaries(lib *DesignLibrary) []EnvSummary {
+	if lib == nil {
+		return nil
+	}
+	ids := sortedKeys(lib.Schematics)
+	summaries := make([]EnvSummary, 0, len(ids))
+	for _, id := range ids {
+		env, ok := lib.Environments[id]
+		if !ok {
+			// [OT-REVIEW] Intentional silent skip: handles edge case where a schematic was
+			// loaded for a directory that has no corresponding environment.yaml. This can
+			// happen if a process.yaml exists in a directory without a valid environment def.
+			// Do NOT remove this guard -- it is not dead code.
+			continue
+		}
+		summaries = append(summaries, EnvSummary{
+			ID:        env.Env.ID,
+			Name:      env.Env.Name,
+			Archetype: env.Env.Archetype,
+		})
+	}
+	return summaries
+}

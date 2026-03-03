@@ -71,6 +71,7 @@ func NewDashboard(api *APIClient, lib *DesignLibrary) *Dashboard {
 		"partials/process_instruments.html",
 		"partials/process_connections.html",
 		"partials/process_network_context.html",
+		"process_svg.html", // SOW-025.0: enables {{template "process_svg"}} call from process.html
 	))
 	d.router = d.buildRouter()
 	return d
@@ -101,6 +102,11 @@ func (d *Dashboard) buildRouter() chi.Router {
 	r.Get("/topology", d.topologyHandler)
 	r.Get("/topology/{env-id}", d.topologyEnvHandler)
 	r.Get("/partials/topology-view/{env-id}", d.topologyPartialHandler)
+
+	// Process section (between Topology and Reference).
+	r.Get("/process", d.processHandler)
+	r.Get("/process/{env-id}", d.processEnvHandler)
+	r.Get("/partials/process-values/{env-id}", d.processValuesPartialHandler)
 
 	// Reference section.
 	r.Get("/design/devices", d.designDevicesHandler)

@@ -37,6 +37,7 @@ import (
 	"github.com/rustybrownlee/ot-simulator/monitoring/internal/config"
 	"github.com/rustybrownlee/ot-simulator/monitoring/internal/dashboard"
 	"github.com/rustybrownlee/ot-simulator/monitoring/internal/discovery"
+	"github.com/rustybrownlee/ot-simulator/monitoring/internal/eventstore"
 	"github.com/rustybrownlee/ot-simulator/monitoring/internal/inventory"
 	"github.com/rustybrownlee/ot-simulator/monitoring/internal/poller"
 )
@@ -125,8 +126,8 @@ func resolveAPIAddr(configPath, addrOverride string) string {
 	return cfg.APIAddr
 }
 
-// run is the main application loop: parse config, start API and dashboard,
-// discover devices, start polling, and wait for shutdown signal.
+// run is the main application loop: parse config, open event store, start API
+// and dashboard, discover devices, start polling, and wait for shutdown signal.
 func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride string) error {
 	cfg, err := config.Parse(configPath)
 	if err != nil {
@@ -153,9 +154,19 @@ func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride stri
 		"poll_interval_seconds", cfg.PollIntervalSeconds,
 		"environments", len(cfg.Environments))
 
+	// Open the event store. Schema is applied on first open.
+	store, err := eventstore.New(cfg.EventDBPath)
+	if err != nil {
+		return fmt.Errorf("open event store: %w", err)
+	}
+	slog.Info("event store opened",
+		"path", cfg.EventDBPath,
+		"retention_days", cfg.EventRetentionDays)
+
 	// Load design library at startup (read-only after initialization).
 	lib, err := dashboard.LoadDesignLibrary(designDir)
 	if err != nil {
+		store.Close() //nolint:errcheck -- best-effort close on startup failure
 		return fmt.Errorf("load design library: %w", err)
 	}
 
@@ -198,6 +209,9 @@ func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride stri
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Start pruning goroutine (hourly, runs until context is cancelled).
+	go runPruner(ctx, store, cfg.EventRetentionDays)
+
 	// Device discovery: probe all configured endpoints.
 	slog.Info("starting device discovery")
 	disc := discovery.New(cfg, inv)
@@ -224,6 +238,14 @@ func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride stri
 	// Start the polling loop in a background goroutine.
 	p := poller.New(cfg, inv, state)
 	p.SetCycleHook(engine.RecordCycle)
+	p.SetEventHook(func(events []*eventstore.TransactionEvent) {
+		if err := store.InsertBatch(context.Background(), events); err != nil {
+			// [OT-REVIEW] FR-9: Availability over completeness. InsertBatch errors are
+			// logged but never crash the monitor or block polling.
+			slog.Warn("event store insert failed", "count", len(events), "error", err)
+		}
+	})
+
 	go func() {
 		if err := p.Run(ctx); err != nil {
 			slog.Warn("poller exited with error", "error", err)
@@ -255,6 +277,42 @@ func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride stri
 		slog.Warn("dashboard server shutdown error", "error", err)
 	}
 
+	// Close event store after poller has stopped to ensure no in-flight inserts.
+	if err := store.Close(); err != nil {
+		slog.Warn("event store close error", "error", err)
+	}
+
 	slog.Info("monitor exited cleanly")
 	return nil
+}
+
+// runPruner deletes events older than the retention window on an hourly schedule.
+// Runs until ctx is cancelled. Prune errors are logged at Warn level and the
+// goroutine continues running to retry on the next tick.
+//
+// PROTOTYPE-DEBT: [td-main-030] Pruner goroutine uses background context for Prune
+// calls. If the main context is cancelled during a prune, the operation may be
+// interrupted. Not critical: incomplete prune will complete on next hourly tick.
+func runPruner(ctx context.Context, store *eventstore.Store, retentionDays int) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	retention := time.Duration(retentionDays) * 24 * time.Hour
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cutoff := time.Now().Add(-retention)
+			n, err := store.Prune(ctx, cutoff)
+			if err != nil {
+				slog.Warn("event pruning failed", "error", err)
+				continue
+			}
+			if n > 0 {
+				slog.Info("pruned old events", "deleted", n, "retention_days", retentionDays)
+			}
+		}
+	}
 }

@@ -23,11 +23,19 @@ import (
 
 	"github.com/rustybrownlee/ot-simulator/monitoring/internal/baseline"
 	"github.com/rustybrownlee/ot-simulator/monitoring/internal/config"
+	"github.com/rustybrownlee/ot-simulator/monitoring/internal/eventstore"
 	"github.com/rustybrownlee/ot-simulator/monitoring/internal/inventory"
 )
 
 // modbusMaxRead is the Modbus specification maximum registers per read request.
+// FC 3/4 (registers): 125 max (125 * 2 bytes = 250 byte PDU payload limit).
 const modbusMaxRead = 125
+
+// modbusMaxCoilRead is the Modbus specification maximum coils per read request.
+// FC 1/2 (coils): 2000 max (2000 bits = 250 bytes PDU payload limit).
+// [OT-REVIEW] The correct Modbus limit for coil reads is 2000, not 125.
+// Using the correct limit teaches trainees accurate protocol constraints.
+const modbusMaxCoilRead = 2000
 
 // connectTimeout is the TCP connection timeout for reconnection attempts.
 const connectTimeout = 2 * time.Second
@@ -36,6 +44,14 @@ const connectTimeout = 2 * time.Second
 // device snapshots. The hook is called in the polling goroutine; the next
 // cycle does not start until the hook returns.
 type CycleHook func(snapshots []baseline.DeviceSnapshot)
+
+// EventHook is called synchronously after each polling cycle with the
+// TransactionEvent values collected during that cycle. Called in the polling
+// goroutine; the next cycle does not start until the hook returns.
+// The slice is owned by the caller after delivery; the poller does not retain it.
+// [OT-REVIEW] EventHook fires before CycleHook so that event records exist in
+// the store before any derivative processing (baseline engine, alerting) runs.
+type EventHook func(events []*eventstore.TransactionEvent)
 
 // PollState records the current state of the polling loop for health reporting.
 type PollState struct {
@@ -137,6 +153,10 @@ func (cp *clientPool) closeAll() {
 }
 
 // Poller reads registers from all online devices on a configurable interval.
+//
+// PROTOTYPE-DEBT: [td-poller-028] Parallel code path: pollAsset (no events) and
+// pollAssetWithEvents (with events). Once EventHook is always set, pollAsset can
+// be removed. Beta 0.7: Remove pollAsset after all integrations use EventHook.
 type Poller struct {
 	cfg       *config.Config
 	inv       *inventory.Inventory
@@ -144,7 +164,13 @@ type Poller struct {
 	pool      *clientPool
 	interval  time.Duration
 	hook      CycleHook
-	prevCycle map[string]prevSnapshot // previous cycle register values per device
+	eventHook EventHook // transaction event delivery hook
+	prevCycle map[string]prevSnapshot
+
+	// PROTOTYPE-DEBT: [td-poller-029] SrcAddr uses monitor's known IP with port 0,
+	// not the actual TCP ephemeral port of the Modbus connection. Beta 0.7:
+	// Passive capture provides actual source addresses including ports.
+	srcAddr string // monitor's source address placeholder for TransactionEvent.SrcAddr
 }
 
 // prevSnapshot holds the previous cycle's register values for one device.
@@ -162,6 +188,7 @@ func New(cfg *config.Config, inv *inventory.Inventory, state *PollState) *Poller
 		pool:      newClientPool(),
 		interval:  time.Duration(cfg.PollIntervalSeconds) * time.Second,
 		prevCycle: make(map[string]prevSnapshot),
+		srcAddr:   resolveMonitorAddr(cfg),
 	}
 }
 
@@ -171,6 +198,15 @@ func New(cfg *config.Config, inv *inventory.Inventory, state *PollState) *Poller
 // is safe -- the hook is only read inside the polling goroutine.
 func (p *Poller) SetCycleHook(hook CycleHook) {
 	p.hook = hook
+}
+
+// SetEventHook registers a function to be called synchronously after each
+// polling cycle with all TransactionEvent values collected during that cycle.
+// EventHook fires before CycleHook so that events are persisted before
+// derivative processing. Calling SetEventHook while the poller is running
+// is safe -- the hook is only read inside the polling goroutine.
+func (p *Poller) SetEventHook(hook EventHook) {
+	p.eventHook = hook
 }
 
 // Run enters the continuous polling loop. It blocks until ctx is cancelled.
@@ -205,7 +241,9 @@ type cycleResult struct {
 	online     bool
 }
 
-// runCycle polls every asset in the inventory once and calls the cycle hook.
+// runCycle polls every asset in the inventory once and calls the cycle hooks.
+// EventHook fires before CycleHook so that event records exist in the store
+// before any derivative processing (baseline engine, alerting) runs.
 func (p *Poller) runCycle(ctx context.Context) {
 	p.state.recordCycleStart()
 	start := time.Now()
@@ -213,57 +251,32 @@ func (p *Poller) runCycle(ctx context.Context) {
 	assets := p.inv.List()
 	online, offline := 0, 0
 	results := make([]cycleResult, 0, len(assets))
+	var allEvents []*eventstore.TransactionEvent
 
 	for _, a := range assets {
-		if ctx.Err() != nil {
+		if ctx != nil && ctx.Err() != nil {
 			break
 		}
 
 		if a.Status == inventory.StatusOffline {
-			if err := p.reconnectAsset(ctx, a); err != nil {
-				slog.Debug("reconnect failed", "id", a.ID, "error", err)
-				results = append(results, cycleResult{assetID: a.ID, online: false})
-				offline++
-			} else {
+			result, events := p.handleOfflineAsset(ctx, a)
+			allEvents = append(allEvents, events...)
+			results = append(results, result)
+			if result.online {
 				online++
-				// Reconnected -- read current values from inventory for snapshot.
-				refreshed, ok := p.inv.Get(a.ID)
-				if ok {
-					results = append(results, cycleResult{
-						assetID: a.ID,
-						holding: refreshed.LatestHolding(),
-						coils:   refreshed.LatestCoils(),
-						online:  true,
-					})
-				}
+			} else {
+				offline++
 			}
 			continue
 		}
 
-		pollStart := time.Now()
-		if err := p.pollAsset(ctx, a); err != nil {
-			slog.Warn("poll failed", "id", a.ID, "error", err)
-			p.pool.remove(a.Endpoint)
-			p.inv.SetStatus(a.ID, inventory.StatusOffline, time.Now())
-			results = append(results, cycleResult{assetID: a.ID, online: false})
-			offline++
-		} else {
-			responseMs := float64(time.Since(pollStart).Microseconds()) / 1000.0
-			refreshed, ok := p.inv.Get(a.ID)
-			var holding []uint16
-			var coils []bool
-			if ok {
-				holding = refreshed.LatestHolding()
-				coils = refreshed.LatestCoils()
-			}
-			results = append(results, cycleResult{
-				assetID:    a.ID,
-				holding:    holding,
-				coils:      coils,
-				responseMs: responseMs,
-				online:     true,
-			})
+		result, events := p.handleOnlineAsset(a)
+		allEvents = append(allEvents, events...)
+		results = append(results, result)
+		if result.online {
 			online++
+		} else {
+			offline++
 		}
 	}
 
@@ -274,13 +287,97 @@ func (p *Poller) runCycle(ctx context.Context) {
 		"devices_offline", offline,
 		"duration_ms", duration.Milliseconds())
 
+	// EventHook fires before CycleHook: persist event records before derivative processing.
+	if p.eventHook != nil && len(allEvents) > 0 {
+		p.eventHook(allEvents)
+	}
+
 	if p.hook != nil {
 		snapshots := p.buildSnapshots(results)
 		p.hook(snapshots)
 	}
 
-	// Update previous-cycle register storage.
 	p.updatePrevCycle(results)
+}
+
+// handleOfflineAsset attempts reconnection for an offline asset.
+// Returns the cycle result and any events collected during a successful reconnect poll.
+func (p *Poller) handleOfflineAsset(ctx context.Context, a *inventory.Asset) (cycleResult, []*eventstore.TransactionEvent) {
+	if err := p.reconnectAsset(ctx, a); err != nil {
+		slog.Debug("reconnect failed", "id", a.ID, "error", err)
+		return cycleResult{assetID: a.ID, online: false}, nil
+	}
+
+	refreshed, ok := p.inv.Get(a.ID)
+	if !ok {
+		return cycleResult{assetID: a.ID, online: true}, nil
+	}
+	return cycleResult{
+		assetID: a.ID,
+		holding: refreshed.LatestHolding(),
+		coils:   refreshed.LatestCoils(),
+		online:  true,
+	}, nil
+}
+
+// handleOnlineAsset polls a single online asset using the appropriate code path
+// based on whether an EventHook is registered.
+func (p *Poller) handleOnlineAsset(a *inventory.Asset) (cycleResult, []*eventstore.TransactionEvent) {
+	if p.eventHook != nil {
+		return p.handleOnlineAssetWithEvents(a)
+	}
+
+	pollStart := time.Now()
+	if err := p.pollAsset(context.Background(), a); err != nil {
+		slog.Warn("poll failed", "id", a.ID, "error", err)
+		p.pool.remove(a.Endpoint)
+		p.inv.SetStatus(a.ID, inventory.StatusOffline, time.Now())
+		return cycleResult{assetID: a.ID, online: false}, nil
+	}
+
+	responseMs := float64(time.Since(pollStart).Microseconds()) / 1000.0
+	refreshed, ok := p.inv.Get(a.ID)
+	var holding []uint16
+	var coils []bool
+	if ok {
+		holding = refreshed.LatestHolding()
+		coils = refreshed.LatestCoils()
+	}
+	return cycleResult{
+		assetID:    a.ID,
+		holding:    holding,
+		coils:      coils,
+		responseMs: responseMs,
+		online:     true,
+	}, nil
+}
+
+// handleOnlineAssetWithEvents polls a single online asset and collects events.
+func (p *Poller) handleOnlineAssetWithEvents(a *inventory.Asset) (cycleResult, []*eventstore.TransactionEvent) {
+	pollStart := time.Now()
+	events, err := p.pollAssetWithEvents(a)
+	if err != nil {
+		slog.Warn("poll failed", "id", a.ID, "error", err)
+		p.pool.remove(a.Endpoint)
+		p.inv.SetStatus(a.ID, inventory.StatusOffline, time.Now())
+		return cycleResult{assetID: a.ID, online: false}, events
+	}
+
+	responseMs := float64(time.Since(pollStart).Microseconds()) / 1000.0
+	refreshed, ok := p.inv.Get(a.ID)
+	var holding []uint16
+	var coils []bool
+	if ok {
+		holding = refreshed.LatestHolding()
+		coils = refreshed.LatestCoils()
+	}
+	return cycleResult{
+		assetID:    a.ID,
+		holding:    holding,
+		coils:      coils,
+		responseMs: responseMs,
+		online:     true,
+	}, events
 }
 
 // buildSnapshots converts cycle results to DeviceSnapshot values, including
@@ -319,91 +416,6 @@ func (p *Poller) updatePrevCycle(results []cycleResult) {
 			p.prevCycle[r.assetID] = prevSnapshot{holding: h, coils: c}
 		}
 	}
-}
-
-// pollAsset reads all holding registers and coils for a single online asset.
-// Reads are chunked at 125 registers per request (Modbus spec maximum).
-func (p *Poller) pollAsset(ctx context.Context, a *inventory.Asset) error {
-	client, err := p.pool.get(a.Endpoint)
-	if err != nil {
-		return fmt.Errorf("get client: %w", err)
-	}
-
-	if err := client.SetUnitId(a.UnitID); err != nil {
-		return fmt.Errorf("set unit ID %d: %w", a.UnitID, err)
-	}
-
-	baseAddr := uint16(0)
-	if a.Addressing == "one-based" {
-		baseAddr = 1
-	}
-
-	holding, err := readHoldingChunked(client, baseAddr, a.HoldingRegCount)
-	if err != nil {
-		return fmt.Errorf("read holding registers: %w", err)
-	}
-
-	coils, err := readCoilsChunked(client, baseAddr, a.CoilCount)
-	if err != nil {
-		return fmt.Errorf("read coils: %w", err)
-	}
-
-	p.inv.UpdateRegisters(a.ID, holding, coils, time.Now())
-	p.inv.SetStatus(a.ID, inventory.StatusOnline, time.Now())
-	return nil
-}
-
-// readHoldingChunked reads count holding registers starting at baseAddr,
-// splitting into 125-register chunks as required by the Modbus specification.
-func readHoldingChunked(client *modbus.ModbusClient, baseAddr uint16, count int) ([]uint16, error) {
-	if count == 0 {
-		return nil, nil
-	}
-
-	result := make([]uint16, 0, count)
-	addr := baseAddr
-
-	for remaining := count; remaining > 0; {
-		qty := remaining
-		if qty > modbusMaxRead {
-			qty = modbusMaxRead
-		}
-		vals, err := client.ReadRegisters(addr, uint16(qty), modbus.HOLDING_REGISTER)
-		if err != nil {
-			return nil, fmt.Errorf("read at addr %d qty %d: %w", addr, qty, err)
-		}
-		result = append(result, vals...)
-		addr += uint16(qty)
-		remaining -= qty
-	}
-
-	return result, nil
-}
-
-// readCoilsChunked reads count coils starting at baseAddr in 125-coil chunks.
-func readCoilsChunked(client *modbus.ModbusClient, baseAddr uint16, count int) ([]bool, error) {
-	if count == 0 {
-		return nil, nil
-	}
-
-	result := make([]bool, 0, count)
-	addr := baseAddr
-
-	for remaining := count; remaining > 0; {
-		qty := remaining
-		if qty > modbusMaxRead {
-			qty = modbusMaxRead
-		}
-		vals, err := client.ReadCoils(addr, uint16(qty))
-		if err != nil {
-			return nil, fmt.Errorf("read coils at addr %d qty %d: %w", addr, qty, err)
-		}
-		result = append(result, vals...)
-		addr += uint16(qty)
-		remaining -= qty
-	}
-
-	return result, nil
 }
 
 // reconnectAsset attempts to open a new Modbus connection to an offline asset.

@@ -1,0 +1,39 @@
+{{define "comms_table_content"}}
+{{if .Devices}}
+<div class="table-responsive">
+    <table class="table table-bordered table-sm">
+        <thead class="table-dark">
+            <tr>
+                <th>Device</th>
+                <th class="text-end">Events</th>
+                <th class="text-end">Writes</th>
+                <th>Last Seen</th>
+                <th>FC Codes</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .Devices}}
+        <tr>
+            <td class="text-nowrap small">
+                <a href="/assets/{{.DeviceID}}"><code>{{.DeviceID}}</code></a>
+                {{if .DeviceName}}<br><span class="text-muted">{{.DeviceName}}</span>{{end}}
+            </td>
+            <td class="text-end small">{{.TotalEvents}}</td>
+            <td class="text-end small">
+                {{if gt .WriteEvents 0}}
+                <span class="badge bg-danger">{{.WriteEvents}}</span>
+                {{else}}
+                0
+                {{end}}
+            </td>
+            <td class="text-nowrap small">{{.LastSeen}}</td>
+            <td class="small"><code>{{.FCCodeList}}</code></td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+{{else}}
+<div class="alert alert-secondary">No communication data yet. Start the poller to observe device traffic.</div>
+{{end}}
+{{end}}

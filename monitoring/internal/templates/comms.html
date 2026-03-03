@@ -1,0 +1,24 @@
+{{define "content"}}
+<div class="row mb-3">
+    <div class="col">
+        <h2>Communications</h2>
+        <p class="text-muted">
+            Device communication matrix showing which devices have been observed and how frequently.
+            Write operations (FC 5, 6, 15, 16) are highlighted in red -- the highest-risk indicator in OT.
+        </p>
+    </div>
+</div>
+{{if not .EventsAvailable}}
+<div class="alert alert-secondary" role="alert">
+    Communication data not available.
+    The event store requires SOW-027.0 (Event Model and Store) and SOW-028.0 (Poller Transaction Logging) to be active.
+</div>
+{{else}}
+<div id="comms-table"
+     hx-get="/partials/comms-table"
+     hx-trigger="every 10s"
+     hx-swap="innerHTML">
+    {{template "comms_table_content" .}}
+</div>
+{{end}}
+{{end}}

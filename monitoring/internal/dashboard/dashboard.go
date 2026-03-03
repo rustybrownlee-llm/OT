@@ -35,9 +35,11 @@ type Dashboard struct {
 	base *template.Template
 }
 
-// svgFuncMap provides arithmetic and formatting functions used by SVG templates.
+// svgFuncMap provides arithmetic and formatting functions used by SVG templates
+// and the FC histogram on the asset detail page.
 // Go html/template has no built-in arithmetic; these are required for computing
-// SVG coordinates (left, top, right, bottom) from center + dimensions.
+// SVG coordinates (left, top, right, bottom) from center + dimensions, and for
+// computing FC distribution percentages from int64 counts.
 var svgFuncMap = template.FuncMap{
 	"add":     func(a, b float64) float64 { return a + b },
 	"sub":     func(a, b float64) float64 { return a - b },
@@ -47,6 +49,7 @@ var svgFuncMap = template.FuncMap{
 	"f0":      func(v float64) string { return fmt.Sprintf("%.0f", v) },
 	"half":    func(v float64) float64 { return v / 2.0 },
 	"float64": func(v int) float64 { return float64(v) },
+	"i64":     func(v int64) float64 { return float64(v) }, // int64 -> float64 for FC histogram percentages
 }
 
 // NewDashboard creates a Dashboard, parsing shared templates eagerly.
@@ -71,7 +74,8 @@ func NewDashboard(api *APIClient, lib *DesignLibrary, events *eventstore.Store) 
 		"assets_table.html",
 		"asset_registers.html",
 		"alerts_table.html",
-		"events_table.html", // SOW-029.0: events partial for HTMX polling
+		"events_table.html",  // SOW-029.0: events partial for HTMX polling
+		"comms_table.html",   // SOW-030.0: comms partial for HTMX polling
 		"partials/topology_view.html",
 		"partials/process_symbols.html",
 		"partials/process_instruments.html",
@@ -105,6 +109,8 @@ func (d *Dashboard) buildRouter() chi.Router {
 	r.Post("/alerts/{id}/acknowledge", d.alertAckHandler)
 	r.Get("/events", d.eventsHandler)
 	r.Get("/partials/events-table", d.eventsTableHandler)
+	r.Get("/comms", d.commsHandler)
+	r.Get("/partials/comms-table", d.commsTableHandler)
 
 	// Topology section.
 	r.Get("/topology", d.topologyHandler)

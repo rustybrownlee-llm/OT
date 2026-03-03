@@ -1,9 +1,12 @@
 package dashboard
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sort"
+
+	"github.com/rustybrownlee/ot-simulator/monitoring/internal/eventstore"
 )
 
 // overviewData is the template data for the overview page.
@@ -117,14 +120,16 @@ type RegisterInfo struct {
 
 // assetDetailData is the template data for the device detail page.
 type assetDetailData struct {
-	Title        string
-	ActivePage   string
-	Asset        Asset
-	DeviceAtomID string
-	Registers    *RegisterResponse
-	Enriched     bool
-	RegisterInfo []*RegisterInfo
-	CoilInfo     []*RegisterInfo
+	Title          string
+	ActivePage     string
+	Asset          Asset
+	DeviceAtomID   string
+	Registers      *RegisterResponse
+	Enriched       bool
+	RegisterInfo   []*RegisterInfo
+	CoilInfo       []*RegisterInfo
+	FCDistribution []eventstore.FCCount // per-device FC histogram (SOW-030.0)
+	FCTotal        int64               // sum of all FC counts for percentage calculation
 }
 
 func (d *Dashboard) buildAssetDetailData(id string) *assetDetailData {
@@ -150,6 +155,15 @@ func (d *Dashboard) buildAssetDetailData(id string) *assetDetailData {
 	}
 	data.Registers, _ = d.api.GetAssetRegisters(id)
 	d.enrichRegisters(data)
+	if d.events != nil {
+		fcs, err := d.events.FCDistribution(context.Background(), id)
+		if err == nil {
+			data.FCDistribution = fcs
+			for _, fc := range fcs {
+				data.FCTotal += fc.Count
+			}
+		}
+	}
 	return data
 }
 
@@ -461,4 +475,5 @@ func joinStrings(ss []string) string {
 	}
 	return result
 }
+
 

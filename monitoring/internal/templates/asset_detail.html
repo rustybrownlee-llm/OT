@@ -47,6 +47,38 @@
                 </dl>
             </div>
         </div>
+        <div class="card mb-3">
+            <div class="card-header fw-semibold">Function Code Distribution</div>
+            <div class="card-body">
+                {{if .FCDistribution}}
+                {{range .FCDistribution}}
+                {{$pct := 0.0}}
+                {{if $.FCTotal}}{{$pct = div (mul (i64 .Count) 100.0) (i64 $.FCTotal)}}{{end}}
+                <div class="mb-2">
+                    <div class="d-flex justify-content-between mb-1">
+                        <small title="{{.FuncName}}">
+                            FC{{.FuncCode}} {{.FuncName}}
+                        </small>
+                        <small class="text-muted">{{.Count}} ({{f0 $pct}}%)</small>
+                    </div>
+                    <div class="progress" style="height: 16px;">
+                        {{if .IsWrite}}
+                        <div class="progress-bar bg-danger" role="progressbar"
+                             style="width: {{f0 $pct}}%"
+                             aria-valuenow="{{f0 $pct}}" aria-valuemin="0" aria-valuemax="100"></div>
+                        {{else}}
+                        <div class="progress-bar bg-primary" role="progressbar"
+                             style="width: {{f0 $pct}}%"
+                             aria-valuenow="{{f0 $pct}}" aria-valuemin="0" aria-valuemax="100"></div>
+                        {{end}}
+                    </div>
+                </div>
+                {{end}}
+                {{else}}
+                <p class="text-muted mb-0 small">No transaction data yet.</p>
+                {{end}}
+            </div>
+        </div>
     </div>
     <div class="col-md-8">
         <div id="register-values"

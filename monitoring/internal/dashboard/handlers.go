@@ -88,6 +88,20 @@ func (d *Dashboard) eventsTableHandler(w http.ResponseWriter, r *http.Request) {
 	d.renderPartial(w, "events_table_content", data)
 }
 
+// commsHandler renders the full communication matrix page.
+// GET /comms
+func (d *Dashboard) commsHandler(w http.ResponseWriter, r *http.Request) {
+	data := d.buildCommsData()
+	d.render(w, "comms.html", data)
+}
+
+// commsTableHandler returns the HTMX partial for the communication matrix table.
+// GET /partials/comms-table
+func (d *Dashboard) commsTableHandler(w http.ResponseWriter, r *http.Request) {
+	data := d.buildCommsData()
+	d.renderPartial(w, "comms_table_content", data)
+}
+
 // designDevicesHandler renders the device library listing.
 func (d *Dashboard) designDevicesHandler(w http.ResponseWriter, r *http.Request) {
 	data := d.buildDesignDevicesData()

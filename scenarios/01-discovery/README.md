@@ -983,6 +983,351 @@ register enumeration.
 
 ---
 
+## Phase G: Process View Context
+
+**Prerequisite**: Phases A-F completed. Monitoring module running with the process view available:
+
+```
+docker compose --profile water --profile wastewater --profile pipeline --profile monitor up
+```
+
+Navigate to `http://localhost:8090/process` to confirm the process view loads before continuing.
+
+You have completed a thorough asset discovery of three OT environments. You found registers,
+identified devices, and mapped network topology. But your asset inventory is still abstract --
+register addresses and raw values. Now open the process view to understand what these devices
+actually do.
+
+---
+
+### Step G1: Navigate to the process view -- greenfield-water-mfg
+
+Open a browser and navigate to:
+
+```
+http://localhost:8090/process
+```
+
+The greenfield-water-mfg environment loads as the default. You will see an SVG process diagram
+with three stages arranged horizontally: Intake, Treatment, and Distribution. Each stage displays
+its controller PLC label and the instruments associated with that stage.
+
+Observe that the instrument values on the diagram are updating approximately every 2 seconds.
+This refresh rate is intentionally slower than a real SCADA poll cycle (500ms-1s). The process
+view is a secondary monitoring overlay -- it reads from the monitoring module's polling results,
+not from a direct PLC connection.
+
+**Document for your asset inventory**: The process view is confirmation that your register
+enumeration was correct. If the diagram shows values, the underlying registers are live.
+
+---
+
+### Step G2: Identify the three stages and their controller PLCs
+
+In the greenfield-water-mfg process view, identify:
+
+| Stage | Controller | Port | IP Address |
+|-------|-----------|------|-----------|
+| Intake (Raw Water Intake) | wt-plc-01 (CompactLogix L33ER) | 5020 | 10.10.10.10 |
+| Treatment (Water Treatment) | wt-plc-02 (CompactLogix L33ER) | 5021 | 10.10.10.11 |
+| Distribution | wt-plc-03 (CompactLogix L33ER) | 5022 | 10.10.10.12 |
+
+Each stage label on the process view corresponds directly to one of the four IP endpoints you
+discovered in Phase A. The three CompactLogix PLCs on the 10.10.10.0/24 network each own one
+stage of the water treatment process.
+
+---
+
+### Step G3: Map Phase B registers to ISA-5.1 instrument tags
+
+In Phase B, you enumerated five holding registers on port 5020 (wt-plc-01). The process view
+reveals what each of those register addresses represents in physical terms:
+
+**Port 5020 (wt-plc-01, Intake stage)**:
+
+| Register | ISA-5.1 Tag | Instrument Name | Unit | Stage |
+|----------|------------|----------------|------|-------|
+| HR[0] | FT-101 | Intake Flow Rate | L/s | Intake Basin |
+| HR[1] | SC-101 | Intake Pump Speed (writable setpoint) | % | Intake Pump 1 |
+| HR[2] | AT-101 | Raw Water pH | pH | Intake Basin |
+| HR[3] | AT-102 | Raw Water Turbidity | NTU | Intake Basin |
+| HR[4] | TT-101 | Intake Water Temperature | degC | Intake Basin |
+
+**Port 5021 (wt-plc-02, Treatment stage)**:
+
+| Register | ISA-5.1 Tag | Instrument Name | Unit | Stage |
+|----------|------------|----------------|------|-------|
+| HR[0] | PT-201 | Filter Inlet Pressure | kPa | Sand Filter |
+| HR[1] | PT-202 | Filter Outlet Pressure | kPa | Sand Filter |
+| HR[2] | PDT-201 | Filter Differential Pressure | kPa | Sand Filter |
+| HR[3] | RT-203 | UV Intensity | mW/cm2 | UV System |
+| HR[4] | FIC-202 | Chemical Feed Rate (writable setpoint) | mL/min | Chemical Feed Pump |
+| HR[5] | AT-202 | Chlorine Residual | mg/L | Chemical Feed Pump |
+| HR[6] | AT-201 | Turbidity Post-Filter | NTU | Sand Filter |
+
+**Port 5022 (wt-plc-03, Distribution stage)**:
+
+| Register | ISA-5.1 Tag | Instrument Name | Unit | Stage |
+|----------|------------|----------------|------|-------|
+| HR[0] | LT-301 | Clear Well Level | % | Clear Well |
+| HR[1] | FT-301 | Distribution Flow Rate | L/s | Clear Well |
+| HR[2] | PT-301 | Distribution Pressure | kPa | Clear Well |
+| HR[3] | AT-301 | Residual Chlorine | mg/L | Clear Well |
+| HR[4] | TT-301 | Distribution Water Temperature | degC | Clear Well |
+
+Note the ISA-5.1 tag structure. The first letter encodes the measured variable: F=flow,
+A=analysis, T=temperature, P=pressure, L=level, R=radiation, S=speed, Z=position. The
+suffix encodes the function: T=transmitter (read-only measurement), IC=indicating controller
+(writable setpoint), S=switch (discrete). HR[4] on port 5021 is FIC-202 -- a Flow Indicating
+Controller, meaning it is a writable dosing rate setpoint, not a measurement.
+
+**Teaching point**: Register addresses are abstract. ISA-5.1 tags encode physical meaning. FT-101
+tells you immediately: this is a flow measurement transmitter (read-only). FIC-202 tells you: this
+is a flow indicating controller (writable). The difference between a transmitter and a controller
+is the difference between a measurement you observe and a setpoint you can manipulate.
+
+---
+
+### Step G4: Observe live instrument value updates
+
+Watch the process view for approximately 30 seconds. Instrument values displayed on the SVG
+diagram will update at the monitoring module's polling interval (approximately every 2 seconds).
+
+Identify at least two instruments whose values change between refreshes:
+
+- FT-101 (Intake Flow Rate) -- the raw water flow rate drifts within a normal operating range.
+- AT-202 (Chlorine Residual) -- the downstream chlorine sensor reading changes as the simulation
+  advances through its process model.
+
+Compare the displayed values to a live mbpoll read of the same registers:
+
+```
+mbpoll -t 4 -r 0 -c 5 -1 localhost -p 5020
+```
+
+The values you receive from mbpoll should match what the process view displays within one polling
+cycle (approximately 2 seconds). Both the monitoring module and your mbpoll command are reading
+the same Modbus TCP registers from the same PLC. This confirms that the process view is showing
+live register data, not static mock data.
+
+---
+
+### Step G5: Switch to brownfield-wastewater -- observe era mixing
+
+Use the environment selector on the process view page to switch to the brownfield-wastewater
+environment. If the environment selector is not visible, navigate to:
+
+```
+http://localhost:8090/process?env=brownfield-wastewater
+```
+
+The brownfield-wastewater process view shows three stages: Influent and Primary Treatment,
+Aeration, and Secondary Treatment and Discharge. Note the era markers visible on equipment
+symbols:
+
+| Stage | Controller | Era | Address Convention |
+|-------|-----------|-----|-------------------|
+| Influent and Primary Treatment | ww-plc-01 (SLC-500, 1997) | 1997 | One-based (ProSoft MVI46-MCM) |
+| Aeration | ww-plc-03 (CompactLogix, 2013) | 2013 | Zero-based |
+| Secondary Treatment and Discharge | ww-plc-02 (SLC-500, 1997) | 1997 | One-based (ProSoft MVI46-MCM) |
+
+The era mixing is immediately visible: the two 1997 SLC-500 PLCs bracket a 2013 CompactLogix in
+the middle. This pattern arose because the 2013 aeration blower modernization replaced only the
+biological treatment stage, leaving the original influent and effluent PLCs in place.
+
+**Document for your asset inventory**: Era mixing within a single process means that addressing
+conventions differ by stage. The 1997 SLC-500 PLCs use one-based addressing (via ProSoft
+MVI46-MCM modules); the 2013 CompactLogix uses zero-based addressing. A monitoring configuration
+that works for the CompactLogix at address 0 will return exception 02 on the SLC-500.
+
+---
+
+### Step G6: Identify the Cradlepoint WAN callout
+
+On the brownfield-wastewater process view, locate the network context callout near the aeration
+stage. This callout represents the Cradlepoint IBR600 cellular modem (ww-cradlepoint,
+192.168.10.99) that was installed in 2022 for blower vendor remote access.
+
+The callout communicates a security-relevant network topology fact that would not be visible
+from register enumeration alone: the aeration blower PLC (ww-plc-03) and every other device on
+the flat 192.168.10.0/24 network are reachable from the internet via the Cradlepoint's WAN link.
+
+This is the same finding you documented in Phase F -- the Cradlepoint is an undocumented
+internet-connected gateway on a flat OT network. The process view contextualizes it: the
+Cradlepoint's position next to the aeration stage reveals that its original purpose was to read
+the blower run hours register (HR[11] on ww-plc-03). A single vendor convenience decision created
+a persistent WAN path to the aeration basin's dissolved oxygen control loop.
+
+---
+
+### Step G7: Switch to pipeline-monitoring -- a new process domain
+
+Use the environment selector to switch to the pipeline-monitoring environment:
+
+```
+http://localhost:8090/process?env=pipeline-monitoring
+```
+
+The pipeline-monitoring process view presents a completely different process domain from the water
+treatment environments. You will see three stages: Gas Compression, Custody Transfer Metering, and
+Gas Quality Analysis.
+
+**Domain orientation**: This is a remote unmanned natural gas compressor station on a transmission
+pipeline. Its function is to boost pipeline gas pressure for long-distance transport. The station
+compresses gas arriving at suction pressure (400-800 PSIG) to discharge pressure (800-1400 PSIG),
+then passes it through a custody transfer metering run before sending it downstream.
+
+Observe the instruments visible on each stage:
+
+**Gas Compression stage** (ps-plc-01, CompactLogix, zero-based):
+
+| Visible Instruments | Tag | Description |
+|---------------------|-----|-------------|
+| Compressor shaft speed | ST-102 | HR[0], RPM, read-only |
+| Suction pressure | PT-102 | HR[1], PSIG, read-only |
+| Discharge pressure | PT-103 | HR[2], PSIG, read-only |
+| Drive-end bearing temp | TT-102 | HR[3], degF, read-only |
+| Compressor run command | run-C-101 | Coil[0], writable |
+
+Also visible: valve position instruments from ps-rtu-02 (ROC800, one-based addressing):
+- ZT-101: Inlet Block Valve Position (HR[5] on ps-rtu-02)
+- ZS-101: ESD Active Status (Coil[4] on ps-rtu-02, read-only)
+
+**Custody Transfer Metering stage** (ps-rtu-01, ROC800, one-based):
+
+| Visible Instruments | Tag | Description |
+|---------------------|-----|-------------|
+| Meter Run 1 Flow Rate | FT-201 | HR[1], MSCFH, read-only |
+| Static Pressure | PT-201 | HR[3], PSIG, read-only |
+| Flowing Temperature | TT-201 | HR[4], degF, read-only |
+| Differential Pressure | PDT-201 | HR[5], inH2O, read-only |
+| Station Total Volume | FQ-250 | HR[7], MCF, read-only |
+
+**Gas Quality Analysis stage** (ps-fc-01, TotalFlow G5, serial via ps-gw-01):
+
+| Visible Instruments | Tag | Description |
+|---------------------|-----|-------------|
+| BTU Heating Value | AT-306 | HR[6], BTU/SCF |
+| Specific Gravity | AT-307 | HR[7], SG (relative to air) |
+| Moisture Content | AT-308 | HR[8], lb/MMSCF |
+
+Note that the Gas Quality Analysis instruments update every 5-10 minutes rather than every 2
+seconds. This is the gas chromatograph (NGC) analysis cycle time -- the instrument physically
+analyzes a sample, then reports a new result. Values that appear unchanging between refreshes are
+stale chromatograph readings, not a communication failure. This is normal NGC behavior.
+
+---
+
+### Step G8: Learn ISA-5.1 tag patterns across all three environments
+
+The process view makes ISA-5.1 tag patterns visible across very different process domains. Use the
+three environments to compare tag types:
+
+**ISA-5.1 first-letter codes** (measured variable):
+
+| Letter | Variable | Water Treatment Examples | Pipeline Examples |
+|--------|---------|-------------------------|-------------------|
+| F | Flow | FT-101 (L/s), FIC-202 (mL/min) | FT-201 (MSCFH), FQ-250 (MCF) |
+| P | Pressure | PT-201 (kPa), PDT-201 (kPa) | PT-102 (PSIG), PDT-201 (inH2O) |
+| T | Temperature | TT-101 (degC) | TT-102 (degF), TT-201 (degF) |
+| A | Analysis | AT-201 (NTU), AT-202 (mg/L) | AT-306 (BTU/SCF), AT-307 (SG) |
+| L | Level | LT-301 (%) | (not present in pipeline) |
+| R | Radiation | RT-203 (mW/cm2 UV) | (not present in pipeline) |
+| S | Speed | SC-101 (pump %) | ST-102 (compressor RPM) |
+| Z | Position | ZT-101, ZS-101 | ZT-102, ZS-101 |
+
+**Critical distinction -- ZT versus ZS in the pipeline environment**:
+
+The pipeline process view shows both ZT-101 and ZS-101 on the inlet block valve and ESD valve
+equipment. These are different ISA-5.1 suffixes with different meanings:
+
+- **ZT-101 (Inlet Block Valve Position)**: ZT = Position Transmitter. An analog measurement of
+  valve position (0-100%). A value of 100% means fully open; 0% means fully closed; a value
+  between 0 and 100 during operation indicates the valve is in mid-travel (transitioning or
+  mechanically binding). Located at HR[5] on ps-rtu-02.
+
+- **ZS-101 (ESD Active Status)**: ZS = Position Switch. A discrete boolean status coil (0 or 1).
+  True (1) means the Emergency Shutdown sequence is active -- the ESD valve has tripped closed.
+  ZS-101 is read-only. It is a hardwired safety interlock and cannot be reset or overridden via
+  Modbus. Modbus communications loss IS an ESD condition by design. Located at Coil[4] on
+  ps-rtu-02.
+
+The FQ-250 (Station Total Volume Today) totalizer register also requires explanation. This
+register accumulates volume since the contract day rollover. The rollover time is set by contract
+(often 9:00 AM per NAESB standards, not midnight). A reading of zero at rollover time is normal
+behavior -- it does not indicate a meter failure, communication problem, or attack on the meter.
+Trainees must distinguish between a natural rollover reset and a zero caused by meter manipulation.
+
+**Teaching point**: Not every instrument on the process view is an attack surface. ZS-101 cannot
+be overridden via Modbus because it is hardwired de-energize-to-trip per DOT 49 CFR 192. The
+process view marks read-only instruments differently from writable setpoints. Understanding which
+instruments can be written -- and which cannot -- is essential before constructing an attack chain.
+
+---
+
+### Step G9: Understand that the same protocol underlies different process domains
+
+You have now viewed three environments in the process view: a modern potable water treatment
+plant, a brownfield wastewater facility, and a remote gas compressor station. All three share one
+commonality: Modbus TCP carries every instrument value and every control setpoint shown on the
+process view diagrams.
+
+The physical processes are completely different:
+- Water treatment moves L/s of water, uses chlorine dosing in mL/min, monitors UV intensity.
+- Wastewater treatment manages biomass in mg/L MLSS, controls dissolved oxygen via blower speed.
+- Pipeline operations measure gas flow in MSCFH, monitor pipeline pressure in PSIG, analyze BTU.
+
+But the security characteristic is identical: no authentication, no encryption, unauthenticated
+write access to every writable register regardless of what that register controls. The Modbus TCP
+protocol that allows you to read FT-101 on a water intake PLC is the same protocol that allows
+you to read PDT-201 on a gas metering RTU.
+
+**Teaching point**: The process view is a training tool, not a control interface. In a real
+facility, the SCADA operator sees this view in their HMI. As a security assessor, you need this
+context to understand the impact of your findings. A register address without process context
+is abstract data. The same register as "FIC-202, sodium hypochlorite dosing rate, writable
+setpoint" is an unauthenticated command interface into a public health system.
+
+---
+
+### Step G10: Gas pipeline domain orientation
+
+The pipeline-monitoring environment introduces a process domain that is likely unfamiliar to IT
+engineers. This step provides the minimum domain knowledge needed to interpret what you observed
+in Steps G7-G8.
+
+**What a compressor station does**: A natural gas transmission pipeline moves gas from production
+fields to distribution endpoints across hundreds of miles. Gas pressure drops as it travels.
+Compressor stations are placed at intervals (typically every 40-100 miles) to restore line
+pressure. A centrifugal compressor driven by a gas turbine boosts gas from suction pressure to
+discharge pressure, maintaining the pressure gradient needed for gas to flow downstream.
+
+**What custody transfer metering measures**: At contractual handoff points between pipeline
+operators, gas custody changes from one party to another. The custody transfer meter (AGA-3
+orifice meter) measures the volume of gas delivered at this boundary. The AGA-3 calculation
+uses three inputs: differential pressure (PDT-201) across an orifice plate, static line pressure
+(PT-201), and flowing temperature (TT-201). Flow rate is proportional to the square root of
+differential pressure -- PDT-201 is the dominant financial input. The calculated volume
+determines billing: how much one party is paid by the other for gas delivered.
+
+**What chromatograph analysis determines**: The Natural Gas Chromatograph (NGC, ps-fc-01) samples
+a side stream from the pipeline and measures gas composition: methane percentage (AT-301), ethane
+(AT-302), propane (AT-303), CO2 (AT-304), nitrogen (AT-305), and derived properties BTU heating
+value (AT-306) and specific gravity (AT-307). BTU and specific gravity are the primary billing
+determinants: a customer pays not just for volume of gas but for its energy content. Higher BTU
+gas commands a higher price. The NGC data feeds into the AGA-3 calculation on the ROC800 for
+billing accuracy. Manipulating AT-306 or AT-307 has direct revenue impact on every transaction
+processed at this custody point.
+
+**Accessing the metering RTU and chromatograph**: ps-rtu-01 (ROC800 metering RTU) and ps-fc-01
+(TotalFlow G5 chromatograph) are station-LAN-only devices. They are not reachable from the WAN.
+Only ps-plc-01 (CompactLogix) is dual-homed -- it listens on both the station LAN (10.20.1.10)
+and the WAN (10.20.0.2). Accessing the metering RTU from the WAN requires pivoting through
+the dual-homed ps-plc-01. Accessing the chromatograph requires an additional hop through the
+Moxa gateway (ps-gw-01, 10.20.1.30:5043).
+
+---
+
 ## Hints
 
 If you are stuck at any point, read the hints in progressive order:
@@ -990,6 +1335,7 @@ If you are stuck at any point, read the hints in progressive order:
 - `hints/hint-1.md` -- gentle nudge (read this first)
 - `hints/hint-2.md` -- explains the underlying concept
 - `hints/hint-3.md` -- gives the specific technique
+- `hints/hint-4.md` -- process view navigation and ISA-5.1 interpretation (Phase G)
 
 The solution at `solutions/solution.md` contains the complete command-by-command walkthrough with
 expected outputs.
@@ -1022,3 +1368,13 @@ After completing this scenario, you should be able to explain:
     network segment.
 15. How topology visualization communicates architectural security posture without requiring
     register-level enumeration.
+16. How to read an ISA-5.1 instrument tag and determine whether the instrument is a read-only
+    measurement or a writable setpoint.
+17. Why the same Modbus TCP protocol -- with the same absence of authentication -- underlies
+    process control in water treatment, wastewater treatment, and natural gas pipeline operations.
+18. What AGA-3 custody transfer metering measures and why PDT-201 (differential pressure) is the
+    dominant financial calculation input.
+19. Why a zero reading on FQ-250 (Station Total Volume Today) is normal at contract hour rollover
+    and how to distinguish rollover behavior from meter manipulation.
+20. Why ZT (analog position transmitter) and ZS (discrete position switch) encode different
+    physical information and why this distinction matters for attack surface analysis.

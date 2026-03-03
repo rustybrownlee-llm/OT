@@ -202,8 +202,8 @@ inventory and your notes from the discovery session. All items must be satisfied
 
 ## Completion Threshold
 
-A scenario is considered complete when all 41 criteria are satisfied. Partial completion is valid
-for study purposes:
+A scenario is considered complete when all applicable criteria are satisfied. Partial completion
+is valid for study purposes:
 
 - SC-01 through SC-06: All devices found (core discovery)
 - SC-07 through SC-17: Register contents and technical observations documented
@@ -211,10 +211,95 @@ for study purposes:
 - SC-22 through SC-24: Conceptual understanding of key OT discovery concepts
 - SC-25 through SC-30: Dashboard-assisted discovery completed and monitoring concepts understood
 - SC-31 through SC-41: Hybrid environment discovery and architecture comparison completed
+- SC-42 through SC-53: Process view context completed (Phase G -- optional extension)
 
 Phases A-D can be completed without the monitoring module running. Phase E requires the monitor
 to be running alongside the plant simulation. Phase F requires the wastewater environment
-profile and the monitor profile both running.
+profile and the monitor profile both running. Phase G additionally requires the pipeline-monitoring
+environment profile. Trainees who stop at Phase F still have a valid completion.
 
 Compare your completed inventory against `reference/expected-asset-inventory.md` to verify
 register counts and addresses are correct.
+
+---
+
+---
+
+## Process View Context (Phase G)
+
+These criteria apply only if Phase G (Process View Context) was completed. All three environment
+process views must have been observed.
+
+- [ ] **SC-42**: Process view opened at `http://localhost:8090/process`. Greenfield-water-mfg
+  environment loads as the default. Three stages visible: Intake, Treatment, and Distribution.
+  Each stage displays its controller PLC label (wt-plc-01, wt-plc-02, wt-plc-03) and the
+  instruments associated with that stage. Values are updating approximately every 2 seconds.
+
+- [ ] **SC-43**: Register-to-tag mapping completed for port 5020 (wt-plc-01). Can state from
+  memory: HR[0] = FT-101 (Intake Flow Rate, L/s), HR[1] = SC-101 (Intake Pump Speed, writable
+  setpoint, %), HR[2] = AT-101 (Raw Water pH), HR[3] = AT-102 (Raw Water Turbidity, NTU),
+  HR[4] = TT-101 (Intake Water Temperature, degC).
+
+- [ ] **SC-44**: Register-to-tag mapping completed for port 5021 (wt-plc-02). Can state: HR[4]
+  is FIC-202 (Chemical Feed Rate, writable dosing setpoint, mL/min) and HR[6] is AT-201 (Turbidity
+  Post-Filter, read-only measurement, NTU). Can explain the distinction: FIC-202 is writable
+  (Flow Indicating Controller -- the dosing rate setpoint); AT-201 is read-only (Analyzer
+  Transmitter -- the post-filter turbidity measurement downstream).
+
+- [ ] **SC-45**: Can explain in one sentence the ISA-5.1 first-letter and suffix conventions.
+  Correct answer includes: first letter encodes the measured variable (F=flow, A=analysis,
+  T=temperature, P=pressure, L=level, Z=position); suffix encodes the function (T=transmitter
+  means read-only measurement, IC=indicating controller means writable setpoint, S=switch means
+  discrete status). Can give one example of each from the greenfield process view.
+
+- [ ] **SC-46**: Brownfield-wastewater process view opened. Era mixing correctly identified: two
+  1997 SLC-500 PLCs (ww-plc-01 and ww-plc-02) bracket a 2013 CompactLogix (ww-plc-03) in the
+  aeration stage. Can explain that the 2013 modernization replaced only the aeration stage,
+  leaving the original influent and effluent PLCs in place. Can state that this era mixing means
+  addressing conventions differ by stage: SLC-500 stages use one-based addressing (ProSoft
+  MVI46-MCM convention); the CompactLogix stage uses zero-based addressing.
+
+- [ ] **SC-47**: Cradlepoint WAN callout located on the brownfield-wastewater process view near
+  the aeration stage. Can explain that the Cradlepoint was installed in 2022 to read the blower
+  run hours register (HR[11] on ww-plc-03) for predictive maintenance scheduling. Can state that
+  because ww-plc-03 is on a flat network with no segmentation, the Cradlepoint's WAN link makes
+  every register on every device on 192.168.10.0/24 reachable from the internet.
+
+- [ ] **SC-48**: Pipeline-monitoring process view opened. Three stages identified: Gas Compression,
+  Custody Transfer Metering, and Gas Quality Analysis. Can identify the controller for each stage:
+  Gas Compression = ps-plc-01 (CompactLogix, WAN-reachable), Metering = ps-rtu-01 (ROC800,
+  station-LAN-only), Gas Quality Analysis = ps-fc-01 (TotalFlow G5, serial via ps-gw-01).
+
+- [ ] **SC-49**: ZT versus ZS distinction demonstrated using pipeline environment examples. Can
+  state: ZT-101 (Inlet Block Valve Position) is an analog position transmitter (HR[5] on
+  ps-rtu-02, 0-100%) that provides a continuous reading of valve travel; ZS-101 (ESD Active
+  Status) is a discrete position switch (Coil[4] on ps-rtu-02, boolean) that indicates whether
+  the Emergency Shutdown sequence is active. Can state that ZS-101 cannot be reset remotely
+  via Modbus because it is a hardwired safety interlock per DOT 49 CFR 192.
+
+- [ ] **SC-50**: FQ-250 (Station Total Volume Today) zero-reading behavior explained. Can state:
+  a zero reading on FQ-250 at the contract hour rollover (often 9:00 AM per NAESB standards,
+  not midnight) is normal behavior -- the totalizer resets to zero at each rollover. A zero reading
+  does not indicate a meter failure, communication problem, or attack. Can distinguish between a
+  rollover reset and a zero caused by disabling all meter runs via HS-201 through HS-204.
+
+- [ ] **SC-51**: AGA-3 custody transfer metering explained in plain language. Can state: the
+  AGA-3 orifice calculation uses three inputs -- differential pressure (PDT-201, dominant input
+  because flow is proportional to sqrt(DP)), static pressure (PT-201), and flowing temperature
+  (TT-201). Can state that PDT-201 is on ps-rtu-01 (ROC800, station-LAN-only at 10.20.1.20)
+  and is NOT WAN-reachable. Reaching it from the WAN requires pivoting through the dual-homed
+  ps-plc-01.
+
+- [ ] **SC-52**: Gas chromatograph access chain documented. Can state the full chain: WAN access
+  reaches ps-plc-01 only (dual-homed, WAN IP 10.20.0.2). The chromatograph (ps-fc-01, serial
+  device) is accessible only via ps-gw-01 (Moxa gateway, 10.20.1.30:5043) on the station LAN.
+  The full attack chain for chromatograph manipulation is: WAN -> ps-plc-01 (pivot) -> station
+  LAN -> ps-gw-01 -> ps-fc-01.
+
+- [ ] **SC-53**: Can articulate the core educational thesis demonstrated by comparing all three
+  environments in the process view. Correct answer includes: the same Modbus TCP protocol --
+  with the same absence of authentication and the same unauthenticated write capability --
+  underlies water treatment (public health impact), wastewater treatment (environmental permit
+  compliance impact), and natural gas pipeline operations (financial and physical safety impact).
+  The process view transforms abstract register addresses into physical consequence descriptions
+  that make vulnerability ratings meaningful.

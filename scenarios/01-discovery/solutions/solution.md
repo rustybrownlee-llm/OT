@@ -932,3 +932,301 @@ but adds two discovery challenges that do not exist in the greenfield: (1) an un
 internet-connected device (Cradlepoint) that requires separate investigation and (2) a two-layer
 serial backbone (DH-485 plus ProSoft RS-485) with addressing characteristics that differ from
 the Ethernet devices on the same segment.
+
+---
+
+## Phase G: Process View Context
+
+This phase requires all three environment profiles and the monitor profile:
+
+```
+docker compose --profile water --profile wastewater --profile pipeline --profile monitor up
+```
+
+Verify the process view is reachable before starting:
+
+```
+http://localhost:8090/process
+```
+
+Expected: process view loads with greenfield-water-mfg as the default environment. Three stages
+visible: Intake, Treatment, and Distribution. Instrument values updating approximately every
+2 seconds.
+
+---
+
+### G1: Greenfield-water-mfg process view -- default environment
+
+Navigate to `http://localhost:8090/process`.
+
+Expected visual state: three stages labeled Intake, Treatment, Distribution. Each stage displays
+its controller PLC identifier and a set of instrument bubbles with live values.
+
+Expected stage-to-PLC mapping:
+
+```
+Intake           -> wt-plc-01 (CompactLogix L33ER, port 5020, 10.10.10.10)
+Treatment        -> wt-plc-02 (CompactLogix L33ER, port 5021, 10.10.10.11)
+Distribution     -> wt-plc-03 (CompactLogix L33ER, port 5022, 10.10.10.12)
+```
+
+---
+
+### G2: Map Phase B registers to ISA-5.1 tags -- all three PLCs
+
+**Expected mapping for wt-plc-01 (port 5020, Intake)**:
+
+```
+HR[0]    FT-101     Intake Flow Rate             L/s      read-only
+HR[1]    SC-101     Intake Pump Speed             %        WRITABLE setpoint
+HR[2]    AT-101     Raw Water pH                 pH       read-only
+HR[3]    AT-102     Raw Water Turbidity           NTU      read-only
+HR[4]    TT-101     Intake Water Temperature      degC     read-only
+
+Coil[0]  run-P-101  Intake Pump 1 Run             bool     WRITABLE
+Coil[1]  run-P-102  Intake Pump 2 Run             bool     WRITABLE
+Coil[2]  ZS-101     Screen Wash Active            bool     read-only
+Coil[3]  LS-101     Low Well Level Alarm          bool     read-only
+```
+
+**Expected mapping for wt-plc-02 (port 5021, Treatment)**:
+
+```
+HR[0]    PT-201     Filter Inlet Pressure         kPa      read-only
+HR[1]    PT-202     Filter Outlet Pressure        kPa      read-only
+HR[2]    PDT-201    Filter Differential Pressure  kPa      read-only
+HR[3]    RT-203     UV Intensity                  mW/cm2   read-only
+HR[4]    FIC-202    Chemical Feed Rate            mL/min   WRITABLE setpoint
+HR[5]    AT-202     Chlorine Residual             mg/L     read-only
+HR[6]    AT-201     Turbidity Post-Filter         NTU      read-only
+
+Coil[0]  HS-201     Filter Backwash Command       bool     WRITABLE
+Coil[1]  run-P-201  Chemical Feed Pump Run        bool     WRITABLE
+Coil[2]  run-UV-201 UV System Active              bool     read-only (status, not command)
+Coil[3]  HS-202     High DP Alarm                 bool     read-only
+```
+
+**Expected mapping for wt-plc-03 (port 5022, Distribution)**:
+
+```
+HR[0]    LT-301     Clear Well Level              %        read-only
+HR[1]    FT-301     Distribution Flow Rate        L/s      read-only
+HR[2]    PT-301     Distribution Pressure         kPa      read-only
+HR[3]    AT-301     Residual Chlorine             mg/L     read-only
+HR[4]    TT-301     Distribution Water Temp       degC     read-only
+
+Coil[0]  run-P-301  Distribution Pump 1 Run       bool     WRITABLE
+Coil[1]  run-P-302  Distribution Pump 2 Run       bool     WRITABLE
+Coil[2]  run-P-303  Booster Pump Run              bool     WRITABLE
+```
+
+The highest-impact writable register identified in Phase A Step A3 is now fully contextualized:
+HR[4] on port 5021 is FIC-202, the sodium hypochlorite dosing rate setpoint (mL/min). Writing
+zero stops all chemical dosing; writing the maximum causes overdosing. Both have public health
+consequences.
+
+---
+
+### G3: Observe live value updates -- confirm process view matches mbpoll
+
+Poll port 5020 while observing the process view:
+
+```
+mbpoll -t 4 -r 0 -c 5 -1 localhost -p 5020
+```
+
+Expected: the five values returned by mbpoll match (within one polling cycle) the values
+displayed on the Intake stage of the process view. Both read from the same registers on
+wt-plc-01.
+
+The process view displays scaled engineering values (e.g., 49 L/s). The mbpoll output shows
+raw 16-bit scaled integers (e.g., 16100). The mapping is linear: 0-32767 maps to the
+engineering range for each instrument (e.g., 0-100 L/s for FT-101).
+
+---
+
+### G4: Brownfield-wastewater process view -- era mixing and network callout
+
+Switch to brownfield-wastewater:
+
+```
+http://localhost:8090/process?env=brownfield-wastewater
+```
+
+Expected visual state: three stages. Era markers visible on equipment symbols.
+
+Expected stage-to-PLC mapping:
+
+```
+Influent and Primary Treatment  -> ww-plc-01 (SLC-500/05, 1997, one-based, via port 5063 unit ID 1)
+Aeration                        -> ww-plc-03 (CompactLogix L33ER, 2013, zero-based, port 5062)
+Secondary Treatment / Discharge -> ww-plc-02 (SLC-500/05, 1997, one-based, via port 5063 unit ID 2)
+```
+
+The era mixing is visible: 1997 -> 2013 -> 1997 from left to right across the process. The
+2013 CompactLogix replaced only the aeration stage; the original SLC-500 PLCs remain on the
+process ends.
+
+Key instruments on the Aeration stage (ww-plc-03, zero-based):
+
+```
+HR[2]    AIC-201    Dissolved Oxygen Setpoint     mg/L     WRITABLE (attack surface)
+HR[3]    AT-201     Dissolved Oxygen              mg/L     read-only (actual DO measurement)
+HR[0]    SC-201     Blower Speed Setpoint         %        WRITABLE
+HR[1]    ST-201     Blower Speed Feedback         RPM      read-only
+```
+
+AIC-201 (HR[2]) is what you write; AT-201 (HR[3]) is what you watch fall. These are different
+registers on the same PLC. Writing 0.0 mg/L to AIC-201 causes the PID loop to reduce blower
+speed, which then causes AT-201 to decline. The actual DO measurement will begin to drop within
+one polling cycle of the setpoint write.
+
+The Cradlepoint WAN callout should be visible near the Aeration stage. It represents the
+Cradlepoint IBR600 (ww-modem-01, 192.168.10.99) installed in 2022 for blower vendor remote
+access. This single device's WAN link makes every register on every device on 192.168.10.0/24
+reachable from the internet.
+
+---
+
+### G5: Pipeline-monitoring process view -- new domain
+
+Switch to pipeline-monitoring:
+
+```
+http://localhost:8090/process?env=pipeline-monitoring
+```
+
+Expected visual state: three stages. The Gas Compression stage has a WAN backhaul callout on
+ps-plc-01 indicating the dual-homed WAN interface.
+
+Expected stage-to-device mapping:
+
+```
+Gas Compression          -> ps-plc-01 (CompactLogix L33ER, dual-homed WAN, port varies)
+                           ps-rtu-02 (ROC800 station-monitoring, station-LAN-only, one-based)
+Custody Transfer Metering -> ps-rtu-01 (ROC800 pipeline-metering, station-LAN-only at 10.20.1.20, one-based)
+Gas Quality Analysis     -> ps-fc-01 (TotalFlow G5, serial via ps-gw-01 at 10.20.1.30:5043, one-based)
+```
+
+Expected key instruments on Gas Compression stage:
+
+```
+ps-plc-01 (CompactLogix, zero-based):
+HR[0]    ST-102     Compressor Shaft Speed        RPM      read-only
+HR[1]    PT-102     Compressor Suction Pressure   PSIG     read-only
+HR[2]    PT-103     Compressor Discharge Pressure PSIG     read-only
+HR[3]    TT-102     Drive-End Bearing Temp        degF     read-only
+HR[5]    VT-101     Compressor Vibration          mils     read-only
+Coil[0]  run-C-101  Compressor Run Command        bool     WRITABLE (WAN-reachable)
+
+ps-rtu-02 (ROC800, one-based):
+HR[5]    ZT-101     Inlet Block Valve Position    %        read-only (analog, 0-100%)
+Coil[4]  ZS-101     ESD Active Status             bool     read-only (hardwired, NOT Modbus-writable)
+```
+
+Expected key instruments on Custody Transfer Metering stage (ps-rtu-01, one-based):
+
+```
+HR[1]    FT-201     Meter Run 1 Flow Rate         MSCFH    read-only (AGA-3 calculated)
+HR[2]    FQ-201     Meter Run 1 Volume Today      MCF      read-only (resets at contract rollover)
+HR[3]    PT-201     Meter Run 1 Static Pressure   PSIG     read-only (AGA-3 input)
+HR[4]    TT-201     Meter Run 1 Flowing Temp      degF     read-only (AGA-3 input)
+HR[5]    PDT-201    Meter Run 1 Diff Pressure     inH2O    read-only (AGA-3 dominant input)
+HR[6]    FT-250     Station Total Flow Rate       MSCFH    read-only
+HR[7]    FQ-250     Station Total Volume Today    MCF      read-only (resets at contract rollover)
+```
+
+Expected key instruments on Gas Quality Analysis stage (ps-fc-01, one-based):
+
+```
+HR[6]    AT-306     BTU Heating Value             BTU/SCF  billing input (updates every 5-10 min)
+HR[7]    AT-307     Specific Gravity              SG       billing input (updates every 5-10 min)
+HR[8]    AT-308     Moisture Content              lb/MMSCF tariff compliance
+```
+
+Values on the Gas Quality Analysis stage may appear to update less frequently (or not at all
+between two observations separated by a few minutes). This is the NGC analysis cycle -- the
+chromatograph physically analyzes a gas sample, then reports new composition values. Between
+cycles, the displayed values are stale. This is normal behavior for a chromatograph instrument.
+
+---
+
+### G6: ZT vs ZS -- confirm the distinction with live process view
+
+In the pipeline process view on the Gas Compression stage, locate both:
+
+- ZT-101 (Inlet Block Valve Position): should read approximately 100% during normal operation
+  (fully open). The value is a continuous analog reading.
+- ZS-101 (ESD Active Status): should read 0 (false) during normal operation (ESD not active).
+  The value is a boolean.
+
+Confirm with mbpoll: ps-rtu-02 uses one-based addressing. ZT-101 is HR[5], ZS-101 is Coil[4].
+
+To observe ZT-101 (analog position, one-based):
+
+```
+mbpoll -t 4 -r 5 -c 1 -1 -a 1 localhost -p [ps-rtu-02-port]
+```
+
+Expected: approximately 32700 (maps to ~100% -- valve fully open).
+
+To observe ZS-101 (discrete coil, one-based):
+
+```
+mbpoll -t 0 -r 4 -c 1 -1 -a 1 localhost -p [ps-rtu-02-port]
+```
+
+Expected: 0 (ESD not active, normal operation).
+
+---
+
+### G7: FQ-250 rollover behavior
+
+Read FQ-250 (Station Total Volume Today, HR[7] on ps-rtu-01):
+
+```
+mbpoll -t 4 -r 7 -c 1 -1 -a 1 localhost -p [ps-rtu-01-port]
+```
+
+Expected: a value in the range 0-100000 MCF representing volume accumulated since contract
+hour rollover. If the value is zero, check whether the current time is near 9:00 AM (contract
+hour per NAESB standards). A zero at rollover is expected behavior -- document it as such.
+
+To distinguish rollover zero from a meter-disabled zero: check that at least meter run 1 is
+enabled via HS-201 (Coil[1] on ps-rtu-01). If HS-201 reads 1 (enabled) and the flow rate
+(FT-201, HR[1]) shows a non-zero value, the totalizer has simply rolled over.
+
+---
+
+### G8: Cross-environment summary table
+
+Your completed Phase G documentation should include a cross-environment comparison:
+
+| Environment | Process Domain | Key Writable Attack Surface | WAN-Reachable Write? |
+|-------------|--------------|----------------------------|---------------------|
+| greenfield-water-mfg | Potable water treatment | FIC-202 (dosing rate, HR[4] on wt-plc-02) | No (no WAN) |
+| brownfield-wastewater | Wastewater treatment | AIC-201 (DO setpoint, HR[2] on ww-plc-03) | Yes (via Cradlepoint) |
+| pipeline-monitoring | Gas compression/metering | run-C-101 (compressor run, Coil[0] on ps-plc-01) | Yes (dual-homed PLC) |
+| pipeline-monitoring | Custody transfer | PDT-201 (DP, HR[5] on ps-rtu-01) | No (station-LAN-only) |
+| pipeline-monitoring | Gas quality | AT-306, AT-307 (BTU, SG via ps-fc-01) | No (serial via gateway) |
+
+**Key learning**: Every environment has attack surfaces. But the WAN-reachability of those attack
+surfaces differs fundamentally. The greenfield environment has no internet exposure. The
+wastewater environment has internet exposure via the Cradlepoint -- making AIC-201 reachable
+from the internet. The pipeline environment has a dual-homed PLC that exposes compressor control
+registers to the WAN, but metering and chromatograph registers require multi-hop pivoting.
+
+---
+
+### Phase G Summary
+
+Phase G demonstrates that register-level enumeration and process-view contextualization are
+complementary skills. The register addresses you discovered in Phases A-F are now named
+instruments on physical equipment with specific operational roles, regulatory implications, and
+attack consequences. The process view does not replace manual discovery -- it completes it.
+
+The three environments together demonstrate that the same Modbus TCP protocol (with the same
+absence of authentication) is the control backbone for public health infrastructure (water
+treatment), environmental compliance infrastructure (wastewater), and energy financial
+infrastructure (gas pipeline). The attack surface is identical at the protocol level; only the
+physical consequence differs.

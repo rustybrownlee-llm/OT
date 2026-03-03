@@ -262,7 +262,7 @@ The existing register value baseline (mean/stddev/min/max) is unchanged. The new
 | 2 | SOW-028.0 | Poller Transaction Logging | SOW-027.0 | Complete | Instrument the poller to emit TransactionEvent for every Modbus read/write cycle; wire event store into monitor startup |
 | 3 | SOW-029.0 | Transaction Log Dashboard Page | SOW-028.0 | Planned | /events route with filterable HTMX table, event detail view, write-only toggle, nav link |
 | 4 | SOW-030.0 | Communication Graph and Function Code Histograms | SOW-028.0 | Planned | /comms route with device matrix, per-device FC distribution on asset detail page, nav link |
-| 5 | SOW-031.0 | CEF Syslog Forwarding | SOW-027.0 | Planned | Syslog emitter package, CEF formatter, configuration in monitor.yaml, optional UDP/TCP output |
+| 5 | SOW-031.0 | CEF Syslog Forwarding | SOW-027.0 | Complete | Syslog emitter package, CEF formatter, configuration in monitor.yaml, optional UDP/TCP output |
 | 6 | SOW-032.0 | Event-Driven Baseline Extensions | SOW-028.0 | Planned | Function code baseline, source baseline, polling interval baseline; write-to-readonly, new-source, fc-anomaly, poll-gap alert rules |
 | 7 | SOW-033.0 | Scenario 04 Phase A: Deploy Monitoring | SOW-029.0, SOW-030.0, SOW-032.0 | Planned | Guided exercise using transaction log, communication graph, and new alert rules to build a traffic baseline and detect unauthorized writes |
 

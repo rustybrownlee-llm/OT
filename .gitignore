@@ -5,6 +5,7 @@ monitoring/bin/
 monitoring/monitor
 poc/bin/
 design/ot-design
+admin/admin
 
 # Runtime output
 plant/output/

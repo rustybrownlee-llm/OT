@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rustybrownlee/ot-simulator/design/schemas/network-atom.schema.json",
+  "title": "OT Simulator Network Atom",
+  "description": "Validates a network atom YAML file in design/networks/. A network atom describes a single network segment as an atomic building block for OT environment composition. Ethernet networks require a subnet property; serial networks must not have one.",
+  "type": "object",
+  "required": ["schema_version", "network", "properties"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1",
+      "description": "Schema version for network atom YAML files. Increment when breaking changes are made to the network atom structure."
+    },
+    "network": {
+      "type": "object",
+      "description": "Network segment identity and classification metadata.",
+      "required": ["id", "name", "type", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this network segment, used to reference the network in environment definitions and placement network assignments (e.g., 'wt-level1', 'mfg-serial-bus', 'ps-wan-link')."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable name for this network segment, suitable for display in topology diagrams and documentation."
+        },
+        "type": {
+          "type": "string",
+          "description": "Network type determining the communication medium and addressing model. ethernet: IP-addressable Ethernet segment (may be physical copper, fiber, or logical WAN/cellular). serial-rs485: EIA-485 multidrop serial bus (no IP addressing; devices invisible to network scanners). serial-rs232: EIA-232 point-to-point serial link (no IP addressing; single device connection).",
+          "enum": ["ethernet", "serial-rs485", "serial-rs232"]
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of this network segment's purpose, era, and OT security characteristics."
+        }
+      }
+    },
+    "properties": {
+      "type": "object",
+      "description": "Physical and capability properties of this network segment. Ethernet segments require a subnet. Serial segments must not have a subnet (serial buses have no IP addressing). VLAN is only meaningful when managed_switch is true.",
+      "required": ["managed_switch", "span_capable"],
+      "additionalProperties": false,
+      "properties": {
+        "subnet": {
+          "type": "string",
+          "description": "IP subnet for this Ethernet segment in CIDR notation (e.g., '10.10.10.0/24'). Required for all ethernet-type networks. Must not be present on serial-type networks (serial buses have no IP addressing and are invisible to network scanners).",
+          "pattern": "^\\d+\\.\\d+\\.\\d+\\.\\d+/\\d+$"
+        },
+        "vlan": {
+          "type": "integer",
+          "description": "IEEE 802.1Q VLAN ID (1-4094) assigned to this segment. Only applicable when managed_switch is true. Omit for unmanaged switches (which cannot configure VLANs) and serial networks.",
+          "minimum": 1,
+          "maximum": 4094
+        },
+        "managed_switch": {
+          "type": "boolean",
+          "description": "Whether this network segment uses a managed switch. Managed switches support SPAN port mirroring (enabling passive IDS/ICS monitoring tools), VLAN configuration, and port-level access control. Unmanaged switches provide no visibility into traffic -- a critical OT monitoring blind spot."
+        },
+        "span_capable": {
+          "type": "boolean",
+          "description": "Whether this segment supports SPAN (Switch Port Analyzer) port mirroring for passive traffic capture. True only when managed_switch is true. Passive monitoring tools (Dragos, Zeek, Cisco CyberVision) require SPAN capability to observe segment traffic without altering it."
+        }
+      }
+    }
+  },
+  "if": {
+    "properties": {
+      "network": {
+        "properties": {
+          "type": { "const": "ethernet" }
+        }
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "properties": {
+        "required": ["subnet"]
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "properties": {
+        "not": {
+          "required": ["subnet"]
+        }
+      }
+    }
+  }
+}

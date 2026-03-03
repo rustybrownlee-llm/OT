@@ -1,0 +1,30 @@
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">Baseline Status</h4>
+    {{if not .APIError}}
+    <button class="btn btn-sm btn-danger"
+            hx-post="/baseline/reset-all"
+            hx-target="#baseline-table-container"
+            hx-swap="innerHTML"
+            onclick="return confirm('Resetting all baselines will restart the learning period for all devices. During this period, anomaly detection is suspended -- any Modbus writes, new polling sources, or unexpected function codes observed during learning will be accepted as normal behavior. Proceed?')">
+        Reset All Baselines
+    </button>
+    {{end}}
+</div>
+
+<p class="text-muted small mb-3">
+    Devices in <span class="badge bg-warning text-dark">learning</span> status have not yet established a behavioral baseline.
+    Anomaly detection is suspended for learning devices -- they represent a detection blind spot.
+    The monitoring API at <code>{{.APIAddr}}</code> must be reachable to display and manage baselines.
+</p>
+
+<div class="card">
+    <div class="card-body p-0"
+         id="baseline-table-container"
+         hx-get="/partials/baseline-table"
+         hx-trigger="every 10s"
+         hx-swap="innerHTML">
+        {{template "baseline_table_content" .}}
+    </div>
+</div>
+{{end}}

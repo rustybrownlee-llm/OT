@@ -1,0 +1,12 @@
+{{define "nav"}}
+<nav class="admin-sidebar">
+    <div class="sidebar-section">Platform</div>
+    <a class="sidebar-link{{if eq .ActivePage "dashboard"}} active{{end}}" href="/">Dashboard</a>
+    <div class="sidebar-section">Management</div>
+    <a class="sidebar-link{{if eq .ActivePage "db"}} active{{end}}" href="/db">Event Database</a>
+    <a class="sidebar-link{{if eq .ActivePage "config"}} active{{end}}" href="/config">Configuration</a>
+    <a class="sidebar-link{{if eq .ActivePage "baseline"}} active{{end}}" href="/baseline">Baseline Status</a>
+    <div class="sidebar-section">Reference</div>
+    <a class="sidebar-link{{if eq .ActivePage "design"}} active{{end}}" href="/design">Design Library</a>
+</nav>
+{{end}}

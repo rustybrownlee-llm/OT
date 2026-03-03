@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rustybrownlee/ot-simulator/design/schemas/environment.schema.json",
+  "title": "OT Simulator Environment Definition",
+  "description": "Validates an environment.yaml file in design/environments/*/. An environment definition assembles device atoms onto network atoms to form a complete simulated OT facility, specifying IP addresses, Modbus ports, and network topology.",
+  "type": "object",
+  "required": ["schema_version", "environment", "networks", "placements"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1",
+      "description": "Schema version for environment definition YAML files. Increment when breaking changes are made to the environment structure."
+    },
+    "environment": {
+      "type": "object",
+      "description": "Environment identity, classification, and narrative metadata.",
+      "required": ["id", "name", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique environment identifier matching the containing directory name (e.g., 'greenfield-water-mfg'). Used as the primary reference key for scenarios and documentation."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable environment name for display in the admin dashboard, scenario materials, and documentation."
+        },
+        "description": {
+          "type": "string",
+          "description": "Narrative description of the facility: industry sector, construction era, network architecture style, and OT security characteristics relevant to training scenarios."
+        },
+        "archetype": {
+          "type": "string",
+          "description": "Network architecture pattern. modern-segmented: Purdue model with VLANs, managed switches, and enforced tier boundaries. legacy-flat: single unmanaged network with no segmentation (common in facilities built before 2000). hybrid: mix of modern and legacy patterns typical of facilities modernized incrementally.",
+          "enum": ["hybrid", "modern-segmented", "legacy-flat"]
+        },
+        "era_span": {
+          "type": "string",
+          "description": "Year or year range representing the installation era of the facility's equipment (e.g., '1993-2024', '2015'). Communicates the coexistence of technology generations that characterizes real OT facilities."
+        }
+      }
+    },
+    "networks": {
+      "type": "array",
+      "description": "Network segments present in this environment. Every network referenced in placements, boundaries, bridges, or additional_networks must be listed here. Serial buses and WAN links are networks too.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "description": "Reference to a network atom by ID.",
+        "required": ["ref"],
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "type": "string",
+            "description": "Network atom ID matching the id field in a design/networks/*.yaml file (e.g., 'wt-level1', 'mfg-serial-bus'). Cross-reference validation (verifying the file exists) is performed by the CLI, not the schema."
+          }
+        }
+      }
+    },
+    "placements": {
+      "type": "array",
+      "description": "Device placements that instantiate device atoms onto network segments with specific addressing. Each placement defines one device instance in the environment.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/Placement"
+      }
+    },
+    "boundaries": {
+      "type": "array",
+      "description": "Network segmentation boundaries between network tiers. Describes the state of security boundaries: whether they are enforced in hardware, planned but not yet installed, or absent. Boundaries are optional -- some environments have no segmentation.",
+      "items": {
+        "$ref": "#/$defs/Boundary"
+      }
+    }
+  },
+  "$defs": {
+    "Placement": {
+      "type": "object",
+      "description": "A device instance in the environment, wiring a device atom to a network segment with addressing and role assignment.",
+      "required": ["id", "device", "network"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique placement identifier within this environment (e.g., 'wt-plc-01', 'mfg-gateway-01'). Used to reference this device instance in process schematics and scenario materials."
+        },
+        "device": {
+          "type": "string",
+          "description": "Device atom ID matching the id field in a design/devices/*.yaml file. Specifies which device type this placement instantiates. Cross-reference validation is performed by the CLI."
+        },
+        "network": {
+          "type": "string",
+          "description": "Primary network segment ID from the networks array. Ethernet placements specify an IP address on this network. Serial placements specify a serial_address and gateway referencing an Ethernet device on this network's corresponding parent segment."
+        },
+        "ip": {
+          "type": "string",
+          "description": "IPv4 address for this device on its primary network. Required for Ethernet-connected devices. Omit for serial devices (they have no IP address -- they are accessed via their gateway's IP).",
+          "format": "ipv4"
+        },
+        "modbus_port": {
+          "type": "integer",
+          "description": "Modbus TCP port number this device listens on. Standard OT port is 502; this simulator uses 5020-5059 to avoid privileged port requirements. The schema accepts any valid port (1-65535).",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "serial_address": {
+          "type": "integer",
+          "description": "Modbus RTU unit ID for serial-connected devices (1-247). This address is sent in the Modbus RTU frame to identify the target device on a multidrop serial bus. Serial devices do not have IP addresses -- they are addressed via the gateway's IP and this unit ID.",
+          "minimum": 1,
+          "maximum": 247
+        },
+        "gateway": {
+          "type": "string",
+          "description": "Placement ID of the serial-to-Ethernet gateway that provides IP connectivity for this serial device. The gateway's IP and Modbus port are used as the TCP endpoint; this serial_address identifies the device on the downstream RS-485 bus."
+        },
+        "role": {
+          "type": "string",
+          "description": "Human-readable description of this device instance's role in the facility (e.g., 'Water Treatment PLC 1 - Intake', 'Serial-to-Ethernet Gateway'). Used in HMI displays and scenario materials."
+        },
+        "register_map_variant": {
+          "type": "string",
+          "description": "Register map variant key from the device atom's register_map_variants object. Selects which role-specific register layout this placement exposes. If omitted, the device exposes empty registers within its declared capacity."
+        },
+        "installed": {
+          "type": "integer",
+          "description": "Year this device was installed in the facility. Documents the installation era for educational narrative about technology generations coexisting in OT environments."
+        },
+        "additional_networks": {
+          "type": "array",
+          "description": "Additional network interfaces for dual-homed or multi-homed devices. A device may have presence on multiple network segments (e.g., a PLC with both a station LAN interface and a WAN-facing interface).",
+          "items": {
+            "$ref": "#/$defs/AdditionalNetwork"
+          }
+        },
+        "bridges": {
+          "type": "array",
+          "description": "Network bridge definitions for gateway devices that connect two network segments. A gateway bridges protocol traffic between its Ethernet port and a serial bus, making serial devices accessible via the gateway's IP.",
+          "items": {
+            "$ref": "#/$defs/BridgeSpec"
+          }
+        }
+      }
+    },
+    "AdditionalNetwork": {
+      "type": "object",
+      "description": "An additional network interface for a multi-homed device placement.",
+      "required": ["network"],
+      "additionalProperties": false,
+      "properties": {
+        "network": {
+          "type": "string",
+          "description": "Network segment ID for this additional interface. Must be listed in the environment's networks array."
+        },
+        "ip": {
+          "type": "string",
+          "description": "IPv4 address for this device on the additional network segment. Omit for serial segments.",
+          "format": "ipv4"
+        }
+      }
+    },
+    "BridgeSpec": {
+      "type": "object",
+      "description": "Defines a protocol bridge between two network segments on a gateway device. The gateway translates protocol traffic between its Ethernet port and a downstream serial bus.",
+      "required": ["from_network", "to_network"],
+      "additionalProperties": false,
+      "properties": {
+        "from_network": {
+          "type": "string",
+          "description": "Source network segment ID (typically the Ethernet segment where clients send Modbus TCP requests to the gateway)."
+        },
+        "to_network": {
+          "type": "string",
+          "description": "Destination network segment ID (typically the serial bus segment where the gateway forwards Modbus RTU requests to downstream devices)."
+        }
+      }
+    },
+    "Boundary": {
+      "type": "object",
+      "description": "A network segmentation boundary between two network tiers in this environment. Documents the security posture of inter-network boundaries, which is essential for OT threat modeling.",
+      "required": ["between", "state", "infrastructure"],
+      "additionalProperties": false,
+      "properties": {
+        "between": {
+          "type": "array",
+          "description": "The two network segment IDs that this boundary separates. Exactly two segment IDs are required.",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "string",
+            "description": "Network segment ID. Both IDs must appear in the environment's networks array."
+          }
+        },
+        "state": {
+          "type": "string",
+          "description": "Enforcement state of this boundary. enforced: boundary is installed and actively restricting traffic. intended: boundary is planned and appears in the design but is not yet installed in hardware -- a critical real-world OT pattern where budget approval precedes installation. absent: no boundary exists between these segments (flat network).",
+          "enum": ["enforced", "intended", "absent"]
+        },
+        "infrastructure": {
+          "type": "string",
+          "description": "Type of boundary enforcement device. managed-switch: VLAN boundary enforced by a managed switch with 802.1Q trunking. firewall: stateful packet inspection appliance. ids-sensor: passive intrusion detection sensor (monitors but does not block). vlan-only: VLAN configuration without a dedicated firewall. other: custom or unspecified boundary infrastructure.",
+          "enum": ["managed-switch", "firewall", "ids-sensor", "vlan-only", "other"]
+        },
+        "installed": {
+          "type": "integer",
+          "description": "Year this boundary infrastructure was installed. Used for era-based narrative in training scenarios."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text description of this boundary's history, security implications, and educational context for training scenarios."
+        }
+      }
+    }
+  }
+}

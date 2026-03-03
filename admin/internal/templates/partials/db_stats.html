@@ -1,0 +1,38 @@
+{{define "db_stats_content"}}
+{{if .StatsError}}
+<div class="alert {{if eq .StatsError "database not accessible: stat database file"}}alert-danger{{else}}alert-info{{end}} mb-0" role="alert">
+    {{.StatsError}}
+</div>
+{{else if .Stats}}
+<table class="table table-sm mb-0">
+    <tbody>
+        <tr>
+            <th scope="row" class="w-50">Event count</th>
+            <td>{{.Stats.EventCount}}</td>
+        </tr>
+        <tr>
+            <th scope="row">Database size</th>
+            <td>{{printf "%.2f" (divFloat64 .Stats.FileSizeBytes 1048576.0)}} MB</td>
+        </tr>
+        <tr>
+            <th scope="row">Oldest event</th>
+            <td>{{if .Stats.OldestEvent}}{{.Stats.OldestEvent.UTC.Format "2006-01-02 15:04:05 UTC"}}{{else}}<span class="text-muted">none (empty database)</span>{{end}}</td>
+        </tr>
+        <tr>
+            <th scope="row">Newest event</th>
+            <td>{{if .Stats.NewestEvent}}{{.Stats.NewestEvent.UTC.Format "2006-01-02 15:04:05 UTC"}}{{else}}<span class="text-muted">none (empty database)</span>{{end}}</td>
+        </tr>
+        <tr>
+            <th scope="row">Retention window</th>
+            <td>{{.Stats.RetentionDays}} days</td>
+        </tr>
+        <tr>
+            <th scope="row">Pruneable events</th>
+            <td>{{.Stats.PruneableEvents}} (older than {{.Stats.RetentionDays}} days)</td>
+        </tr>
+    </tbody>
+</table>
+{{else}}
+<p class="text-muted mb-0 p-3">No database statistics available.</p>
+{{end}}
+{{end}}

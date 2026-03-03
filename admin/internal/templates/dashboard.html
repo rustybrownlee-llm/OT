@@ -1,0 +1,102 @@
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">Dashboard</h4>
+</div>
+
+<!-- Health Cards (HTMX auto-refresh every 10s) -->
+<div id="health-cards-container"
+     hx-get="/partials/health-cards"
+     hx-trigger="every 10s"
+     hx-swap="innerHTML">
+    {{template "health_cards_content" .}}
+</div>
+
+<!-- Quick Stats -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-3">
+                <div class="fs-4 fw-bold">{{.TotalEvents}}</div>
+                <div class="text-muted small">Total Events</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-3">
+                <div class="fs-4 fw-bold">{{printf "%.1f" .DBSizeMB}} MB</div>
+                <div class="text-muted small">Database Size</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-3">
+                <div class="fs-5 fw-bold">{{if .NewestEventAge}}{{.NewestEventAge}}{{else}}&mdash;{{end}}</div>
+                <div class="text-muted small">Newest Event</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-3">
+                <div class="fs-6 fw-bold">{{if .BaselineSummary}}{{.BaselineSummary}}{{else}}&mdash;{{end}}</div>
+                <div class="text-muted small">Baselines</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Navigation Cards -->
+<h5 class="mb-3">Admin Functions</h5>
+<div class="row g-3">
+    <div class="col-md-6 col-lg-3">
+        <a href="/db" class="text-decoration-none">
+            <div class="card h-100 card-hover">
+                <div class="card-body">
+                    <h6 class="card-title">Event Database</h6>
+                    <p class="card-text text-muted small">
+                        View event statistics, prune old events, and export data as CSV or JSON.
+                    </p>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-6 col-lg-3">
+        <a href="/config" class="text-decoration-none">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-title">Configuration</h6>
+                    <p class="card-text text-muted small">
+                        View the monitor.yaml configuration file with syntax highlighting and validate its contents.
+                    </p>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-6 col-lg-3">
+        <a href="/design" class="text-decoration-none">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-title">Design Library</h6>
+                    <p class="card-text text-muted small">
+                        Browse the catalog of device atoms, network atoms, and environment definitions.
+                    </p>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-6 col-lg-3">
+        <a href="/baseline" class="text-decoration-none">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-title">Baseline Status</h6>
+                    <p class="card-text text-muted small">
+                        Monitor per-device anomaly detection baselines and trigger re-learning.
+                    </p>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+{{end}}

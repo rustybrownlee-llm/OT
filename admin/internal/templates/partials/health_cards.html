@@ -1,0 +1,40 @@
+{{define "health_cards_content"}}
+<div class="row g-3 mb-3">
+    {{template "health_card_group" .DeviceGroup}}
+    {{template "health_card_group" .ServiceGroup}}
+</div>
+{{end}}
+
+{{define "health_card_group"}}
+<div class="col-md-6">
+    <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>{{.Label}}</strong>
+            <span>
+                {{if gt .Offline 0}}
+                <span class="badge bg-danger">{{.Offline}} offline</span>
+                {{end}}
+                <span class="badge bg-success">{{.Online}} online</span>
+            </span>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-sm table-hover mb-0">
+                <tbody>
+                {{range .Entries}}
+                <tr>
+                    <td class="ps-3">{{.Label}}</td>
+                    <td>
+                        <span class="status-dot status-{{.Status}} me-1"></span>
+                        {{.Status}}
+                    </td>
+                    <td class="text-muted small">{{.Detail}}</td>
+                </tr>
+                {{else}}
+                <tr><td colspan="3" class="text-muted ps-3">No entries</td></tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{{end}}

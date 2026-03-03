@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rustybrownlee/ot-simulator/design/schemas/device-atom.schema.json",
+  "title": "OT Simulator Device Atom",
+  "description": "Validates a device atom YAML file in design/devices/. A device atom describes what a physical OT device type is and what it can do, independent of any specific deployment role or environment.",
+  "type": "object",
+  "required": ["schema_version", "device", "connectivity", "registers", "register_map_variants", "diagnostics"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1",
+      "description": "Schema version for device atom YAML files. Increment when breaking changes are made to the device atom structure."
+    },
+    "device": {
+      "type": "object",
+      "description": "Device identity and classification metadata.",
+      "required": ["id", "vendor", "model", "category", "vintage", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this device type, used to reference the device in environment placements. Matches the YAML filename without extension (e.g., 'compactlogix-l33er')."
+        },
+        "vendor": {
+          "type": "string",
+          "description": "Device manufacturer name (e.g., 'Allen-Bradley', 'Schneider Electric', 'Emerson')."
+        },
+        "model": {
+          "type": "string",
+          "description": "Device model name or number as designated by the manufacturer (e.g., 'CompactLogix 5380 L33ER')."
+        },
+        "category": {
+          "type": "string",
+          "description": "Functional category of the device. plc=programmable logic controller executing control logic; gateway=protocol bridge or serial-to-Ethernet converter; rtu=remote terminal unit for SCADA data acquisition; flow-computer=dedicated measurement and calculation device; hmi=human-machine interface workstation; sensor=field measurement instrument; relay=protection or control relay; safety-controller=dedicated safety instrumented system controller.",
+          "enum": ["plc", "gateway", "rtu", "flow-computer", "hmi", "sensor", "relay", "safety-controller"]
+        },
+        "vintage": {
+          "type": "integer",
+          "description": "Year this device model was introduced by the manufacturer. Minimum 1960 pre-dates earliest commercial PLC era. Modicon 984 (1988), SLC-500 (1992), and similar legacy devices remain in active OT service decades after their vintage year.",
+          "minimum": 1960,
+          "maximum": 2030
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the device's role and notable characteristics for OT security training purposes."
+        }
+      }
+    },
+    "connectivity": {
+      "type": "object",
+      "description": "Network connectivity capabilities: physical ports, supported protocols, and timing characteristics.",
+      "required": ["ports", "response_delay_ms", "response_jitter_ms", "concurrent_connections"],
+      "additionalProperties": false,
+      "properties": {
+        "ports": {
+          "type": "array",
+          "description": "Physical communication ports on this device. A device may have multiple ports of different types (e.g., CompactLogix has Ethernet; SLC-500 has DH-485 native plus RS-485 via ProSoft module).",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/PortSpec"
+          }
+        },
+        "response_delay_ms": {
+          "type": "integer",
+          "description": "Typical Modbus response time in milliseconds. Modern PLCs: 2-10ms. Legacy serial PLCs: 50-100ms. Cellular gateways: 100-300ms. This value drives the simulator's response timing to produce realistic protocol traffic.",
+          "minimum": 0
+        },
+        "response_jitter_ms": {
+          "type": "integer",
+          "description": "Random timing variation applied to each response in milliseconds. Models scan-time variability on legacy processors and RF conditions on wireless links.",
+          "minimum": 0
+        },
+        "concurrent_connections": {
+          "type": "integer",
+          "description": "Maximum simultaneous Modbus TCP connections this device type supports. Serial devices: 1 (physical constraint). Ethernet PLCs: typically 4-32 depending on firmware.",
+          "minimum": 1
+        }
+      }
+    },
+    "registers": {
+      "type": "object",
+      "description": "Hardware register capacity limits for this device type. These are manufacturer-specified maximums, not role-specific assignments. Role-specific layouts are defined in register_map_variants.",
+      "required": ["max_holding", "max_coils", "max_input_registers", "max_discrete_inputs", "addressing", "float_byte_order", "max_registers_per_read"],
+      "additionalProperties": false,
+      "properties": {
+        "max_holding": {
+          "type": "integer",
+          "description": "Maximum number of holding registers (Modbus function codes FC03/FC06/FC16). Holding registers store process values, setpoints, and configuration. Address space 4xxxx in classic Modbus notation.",
+          "minimum": 0
+        },
+        "max_coils": {
+          "type": "integer",
+          "description": "Maximum number of coils (Modbus function codes FC01/FC05/FC15). Coils are single-bit outputs representing discrete states (pump run/stop, valve open/close). Address space 0xxxx in classic Modbus notation.",
+          "minimum": 0
+        },
+        "max_input_registers": {
+          "type": "integer",
+          "description": "Maximum number of input registers (Modbus function code FC04). Input registers are read-only 16-bit values from field instruments. Address space 3xxxx in classic Modbus notation.",
+          "minimum": 0
+        },
+        "max_discrete_inputs": {
+          "type": "integer",
+          "description": "Maximum number of discrete inputs (Modbus function code FC02). Discrete inputs are read-only single-bit values from field sensors and limit switches. Address space 1xxxx in classic Modbus notation.",
+          "minimum": 0
+        },
+        "addressing": {
+          "type": "string",
+          "description": "Modbus register addressing convention. zero-based: first register is address 0 (CompactLogix, Moxa NPort, Cradlepoint). one-based: first register is address 1 (Modicon 984, SLC-500 via ProSoft, Emerson ROC800, ABB TotalFlow). This determines whether register address 0 or 1 refers to the first physical register.",
+          "enum": ["zero-based", "one-based"]
+        },
+        "float_byte_order": {
+          "type": "string",
+          "description": "Modbus float byte order for 32-bit IEEE 754 values stored across two consecutive 16-bit registers. big-endian = ABCD network byte order, used by CompactLogix and modern devices. little-endian = CDAB word-swap order used by Modicon 984 and many older devices. Note: 'little-endian' here simplifies the CDAB word-swapped encoding common in legacy Modicon devices -- the real OT world has four byte order variants (ABCD, DCBA, CDAB, BADC).",
+          "enum": ["big-endian", "little-endian"]
+        },
+        "max_registers_per_read": {
+          "type": "integer",
+          "description": "Maximum number of registers returnable in a single Modbus read response. The Modbus specification maximum is 125 (FC03) and 2000 (FC01/FC02). Most implementations cap at 125 for all register types.",
+          "minimum": 1,
+          "maximum": 125
+        }
+      }
+    },
+    "register_map_variants": {
+      "type": "object",
+      "description": "Named register layouts for different deployment roles. The same device type may serve different roles (e.g., compactlogix-l33er has water-intake, water-treatment, water-distribution, compressor-control variants). An environment placement selects one variant via register_map_variant. Minimum one variant is required.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/RegisterMap"
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "description": "Built-in diagnostic and management capabilities of this device type. These fields inform the simulator and serve as OT device inventory reference for training scenarios.",
+      "required": ["web_server", "web_port", "snmp", "syslog", "fault_log", "fault_log_depth"],
+      "additionalProperties": false,
+      "properties": {
+        "web_server": {
+          "type": "boolean",
+          "description": "Whether this device type has a built-in HTTP/HTTPS web interface for configuration or status monitoring. Security implication: default credentials are common in OT deployments."
+        },
+        "web_port": {
+          "type": "integer",
+          "description": "TCP port of the built-in web server (typically 80 or 443). Set to 0 when web_server is false.",
+          "minimum": 0
+        },
+        "snmp": {
+          "type": "boolean",
+          "description": "Whether this device supports SNMP management. Security implication: SNMP v1/v2c community strings are commonly default or weak in OT environments."
+        },
+        "syslog": {
+          "type": "boolean",
+          "description": "Whether this device can forward log events to a syslog server. Syslog forwarding is a foundational requirement for centralized OT security monitoring."
+        },
+        "fault_log": {
+          "type": "boolean",
+          "description": "Whether this device maintains an onboard event or fault log. Fault logs are critical for incident reconstruction in OT environments where external logging may be absent."
+        },
+        "fault_log_depth": {
+          "type": "integer",
+          "description": "Maximum number of fault log entries stored onboard. Set to 0 when fault_log is false. Older devices (SLC-500: 10 entries) have much smaller capacity than modern RTUs (ROC800: 500 entries).",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "PortSpec": {
+      "type": "object",
+      "description": "A single physical communication port on a device, specifying the electrical interface type and supported OT protocols.",
+      "required": ["type", "protocols"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Physical/electrical port type. ethernet: 10/100/1000BASE-T RJ-45. rs485: EIA-485 differential serial (multidrop capable). rs232: EIA-232 single-ended serial (point-to-point only). dh485: Allen-Bradley Data Highway 485 (proprietary token-passing on RS-485 physical layer). Note: RS-485 is an electrical standard; DH-485 is a protocol that runs on RS-485 wire.",
+          "enum": ["ethernet", "rs485", "rs232", "dh485"]
+        },
+        "protocols": {
+          "type": "array",
+          "description": "OT protocols supported on this port. Empty array is valid for ports with no simulated OT protocol (e.g., Cradlepoint WAN cellular port presents as Ethernet but carries no Modbus traffic). modbus-tcp: Modbus over TCP/IP (RFC 2007). modbus-rtu: Modbus over serial (RTU framing). dh-485: Allen-Bradley Data Highway 485 proprietary protocol.",
+          "minItems": 0,
+          "items": {
+            "type": "string",
+            "enum": ["modbus-tcp", "modbus-rtu", "dh-485"]
+          }
+        }
+      }
+    },
+    "RegisterMap": {
+      "type": "object",
+      "description": "A named register layout for a specific device deployment role. Defines the holding registers and coils exposed by the device in that role. All register addresses must be within the device's declared register capacity.",
+      "required": ["holding", "coils"],
+      "additionalProperties": false,
+      "properties": {
+        "holding": {
+          "type": "array",
+          "description": "Holding register definitions for this role variant. Holding registers (FC03/FC06/FC16) store 16-bit process values, setpoints, and configuration. Empty array is valid for variants with no holding registers.",
+          "minItems": 0,
+          "items": {
+            "$ref": "#/$defs/RegisterDef"
+          }
+        },
+        "coils": {
+          "type": "array",
+          "description": "Coil definitions for this role variant. Coils (FC01/FC05/FC15) are single-bit discrete outputs for pump run/stop, valve open/close, and enable/disable commands. Empty array is valid for devices with no process coils (e.g., moxa-nport-5150 serial-gateway, cradlepoint-ibr600 vendor-remote-access).",
+          "minItems": 0,
+          "items": {
+            "$ref": "#/$defs/CoilDef"
+          }
+        }
+      }
+    },
+    "RegisterDef": {
+      "type": "object",
+      "description": "Definition of a single holding register within a register map variant. Registers store 16-bit scaled integer values representing process measurements, setpoints, or status words.",
+      "required": ["address", "name", "description", "unit", "scale_min", "scale_max", "writable"],
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "type": "integer",
+          "description": "Modbus register address within this variant's map. Interpretation depends on the device's addressing convention (zero-based or one-based). Must be within the device's max_holding capacity.",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string",
+          "description": "Symbolic register name used in process diagrams, HMI displays, and SCADA tag databases (e.g., 'intake_flow_rate', 'do_setpoint')."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what this register measures or controls, including OT security context (attack surfaces, safety implications, normal operating ranges)."
+        },
+        "unit": {
+          "type": "string",
+          "description": "Engineering unit for the register value (e.g., 'L/s', 'PSI', 'degC', '%', 'mg/L', 'bitmask', 'enum'). Unit strings are not enum-constrained at this schema version -- see td-schema-081."
+        },
+        "scale_min": {
+          "type": "number",
+          "description": "Engineering unit value corresponding to the minimum raw register value (0). Used to convert 16-bit raw values to engineering units: EU = scale_min + (raw / 32767) * (scale_max - scale_min)."
+        },
+        "scale_max": {
+          "type": "number",
+          "description": "Engineering unit value corresponding to the maximum raw register value (32767). Defines the upper bound of the register's measurement range."
+        },
+        "writable": {
+          "type": "boolean",
+          "description": "Whether this register accepts Modbus write operations (FC06/FC16). In OT, writable registers on process control devices (dosing pumps, valve actuators, setpoints) carry physical safety implications. A misconfigured writable=false register means emergency commands are silently ignored."
+        }
+      }
+    },
+    "CoilDef": {
+      "type": "object",
+      "description": "Definition of a single coil within a register map variant. Coils are single-bit discrete outputs representing on/off states (pump running, valve open, alarm active).",
+      "required": ["address", "name", "description", "writable"],
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "type": "integer",
+          "description": "Modbus coil address within this variant's map. Interpretation depends on the device's addressing convention (zero-based or one-based). Must be within the device's max_coils capacity.",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string",
+          "description": "Symbolic coil name used in process diagrams and HMI displays (e.g., 'intake_pump_01_run', 'filter_backwash_command')."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what this coil controls or indicates, including safety implications. Hardwired safety circuits (e-stops, ESD valves) are read-only coils -- the PLC reads their state but cannot override them."
+        },
+        "writable": {
+          "type": "boolean",
+          "description": "Whether this coil accepts Modbus write operations (FC05/FC15). Safety-critical coils (emergency stops, ESD valves) are read-only: the PLC reads the hardwired circuit state but Modbus writes are rejected or ignored per physical safety design."
+        }
+      }
+    }
+  }
+}

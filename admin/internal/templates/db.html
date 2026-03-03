@@ -1,0 +1,88 @@
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">Event Database</h4>
+</div>
+
+<div class="row g-3">
+    <!-- Stats Panel (HTMX auto-refresh every 30s) -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>Database Statistics</strong>
+            </div>
+            <div class="card-body p-0"
+                 id="db-stats-panel"
+                 hx-get="/partials/db-stats"
+                 hx-trigger="every 30s"
+                 hx-swap="innerHTML">
+                {{template "db_stats_content" .}}
+            </div>
+        </div>
+    </div>
+
+    <!-- Prune and Export Forms -->
+    <div class="col-md-6">
+        <!-- Prune Form -->
+        <div class="card mb-3">
+            <div class="card-header"><strong>Prune Events</strong></div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Delete events older than the specified number of days.
+                    This operation cannot be undone.
+                </p>
+                <form hx-post="/db/prune"
+                      hx-target="#db-stats-panel"
+                      hx-swap="innerHTML"
+                      onsubmit="return confirm('Delete events older than ' + document.getElementById('prune-days').value + ' days? This cannot be undone.')">
+                    <div class="input-group">
+                        <span class="input-group-text">Delete events older than</span>
+                        <input type="number" id="prune-days" name="days"
+                               class="form-control" value="7" min="1" max="365">
+                        <span class="input-group-text">days</span>
+                        <button type="submit" class="btn btn-danger">Prune</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Export Form -->
+        <div class="card">
+            <div class="card-header"><strong>Export Events</strong></div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Download events as a file. Use filters to narrow the export range.
+                </p>
+                <form id="export-form" action="/db/export" method="get">
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label small">Format</label>
+                            <select name="format" class="form-select form-select-sm">
+                                <option value="csv">CSV</option>
+                                <option value="json">JSON</option>
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Device ID (optional)</label>
+                            <input type="text" name="device" class="form-control form-control-sm"
+                                   placeholder="e.g. wt-plc-01">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">After (RFC3339, optional)</label>
+                            <input type="text" name="after" class="form-control form-control-sm"
+                                   placeholder="2024-01-01T00:00:00Z">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Before (RFC3339, optional)</label>
+                            <input type="text" name="before" class="form-control form-control-sm"
+                                   placeholder="2024-12-31T23:59:59Z">
+                        </div>
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-primary btn-sm">Download</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

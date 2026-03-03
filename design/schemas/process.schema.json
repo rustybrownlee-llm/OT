@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rustybrownlee/ot-simulator/design/schemas/process.schema.json",
+  "title": "OT Simulator Process Definition",
+  "description": "Validates a process.yaml file in design/environments/*/. A process definition describes the physical equipment, instrumentation, and flow paths of an OT process, mapping each instrument to its Modbus register address on a specific PLC or RTU placement.",
+  "type": "object",
+  "required": ["schema_version", "process", "stages"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1",
+      "description": "Schema version for process definition YAML files. Increment when breaking changes are made to the process structure."
+    },
+    "process": {
+      "type": "object",
+      "description": "Process identity and layout metadata.",
+      "required": ["id", "name", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique process identifier, typically matching the environment ID (e.g., 'greenfield-water-mfg'). Links this process definition to its corresponding environment."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable process name for display in HMI screens, documentation, and training materials."
+        },
+        "description": {
+          "type": "string",
+          "description": "Narrative description of the physical process: treatment strategy, flow path, and significant characteristics for OT security training."
+        },
+        "flow_direction": {
+          "type": "string",
+          "description": "Visual layout direction for process flow diagrams. horizontal: left-to-right flow (most common for linear treatment processes). vertical: top-to-bottom flow. radial: hub-and-spoke layout for distribution systems.",
+          "enum": ["horizontal", "vertical", "radial"]
+        }
+      }
+    },
+    "stages": {
+      "type": "array",
+      "description": "Ordered list of process stages. Each stage groups equipment and instruments controlled by a single PLC or RTU placement. Stages represent functional divisions of the process (e.g., intake, treatment, distribution).",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/Stage"
+      }
+    },
+    "connections": {
+      "type": "array",
+      "description": "Physical flow connections between equipment items. Defines the topology of the process flow path for visualization in HMI and training diagrams. Optional: not all process definitions require explicit connection modeling.",
+      "items": {
+        "$ref": "#/$defs/Connection"
+      }
+    },
+    "network_context": {
+      "type": "array",
+      "description": "Security-relevant network connectivity overlaying the process topology. Documents WAN links, internet gateways, and other network elements that affect the OT attack surface but are not part of the physical process flow.",
+      "items": {
+        "$ref": "#/$defs/NetworkContext"
+      }
+    }
+  },
+  "$defs": {
+    "Stage": {
+      "type": "object",
+      "description": "A functional stage of the process, grouping equipment and instruments under a single controlling PLC or RTU. Stages correspond to placement IDs in the environment definition.",
+      "required": ["id", "name", "controller", "equipment"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique stage identifier within this process definition (e.g., 'intake', 'treatment', 'distribution')."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable stage name for HMI display and documentation."
+        },
+        "controller": {
+          "type": "object",
+          "description": "The PLC or RTU placement that controls all equipment in this stage.",
+          "required": ["placement", "device"],
+          "additionalProperties": false,
+          "properties": {
+            "placement": {
+              "type": "string",
+              "description": "Placement ID from the corresponding environment.yaml (e.g., 'wt-plc-01'). This placement's Modbus registers contain the instruments defined in this stage."
+            },
+            "device": {
+              "type": "string",
+              "description": "Device atom ID of the controller (e.g., 'compactlogix-l33er'). Matches the device field in the placement."
+            }
+          }
+        },
+        "equipment": {
+          "type": "array",
+          "description": "Physical equipment items in this stage, each with associated instruments (sensors, actuators, and switches) mapped to Modbus registers.",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Equipment"
+          }
+        }
+      }
+    },
+    "Equipment": {
+      "type": "object",
+      "description": "A physical piece of process equipment (pump, tank, valve, etc.) containing one or more instruments that interface to the controlling PLC.",
+      "required": ["id", "type", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique equipment identifier within this process (e.g., 'intake-pump-01', 'primary-clarifier'). Used to define connections between equipment items."
+        },
+        "type": {
+          "type": "string",
+          "description": "Equipment functional type. pump: centrifugal or positive-displacement pump. screen: travelling screen or bar screen for debris removal. basin: open-top vessel (aeration basin, equalization basin). tank: closed pressure vessel or storage tank. valve: control valve, block valve, or check valve. meter: flow meter or orifice run for measurement. compressor: centrifugal or reciprocating gas compressor. chromatograph: natural gas chromatograph for composition analysis. uv_system: ultraviolet disinfection system. clarifier: sedimentation basin for solids settling. blower: positive-displacement or centrifugal blower for aeration.",
+          "enum": ["pump", "screen", "basin", "tank", "valve", "meter", "compressor", "chromatograph", "uv_system", "clarifier", "blower"]
+        },
+        "label": {
+          "type": "string",
+          "description": "Human-readable equipment label for HMI displays and process diagrams (e.g., 'Intake Pump 1', 'Primary Clarifier')."
+        },
+        "era": {
+          "type": "integer",
+          "description": "Installation year of this equipment item. Documents the age of individual equipment within a stage, which may have been installed across multiple eras."
+        },
+        "instruments": {
+          "type": "array",
+          "description": "Instruments (sensors, transmitters, actuators, switches) associated with this equipment, each mapped to a specific Modbus register. An equipment item may have zero instruments if no register mapping is required.",
+          "minItems": 0,
+          "items": {
+            "$ref": "#/$defs/Instrument"
+          }
+        }
+      }
+    },
+    "Instrument": {
+      "type": "object",
+      "description": "A field instrument or control element mapped to a Modbus register on the stage controller. Instruments include transmitters (read-only sensors), controllers (writable setpoints), and discrete elements (coils for run commands and status).",
+      "required": ["tag", "name", "isa_type", "placement", "register", "unit"],
+      "additionalProperties": false,
+      "properties": {
+        "tag": {
+          "type": "string",
+          "description": "Instrument tag identifier following ISA-5.1 conventions (e.g., 'FT-101', 'AT-201', 'run-P-101'). First letter = measured variable (F=flow, A=analyzer, T=temperature, P=pressure, L=level, Z=position). Subsequent letters = function (T=transmitter, C=controller, I=indicator, S=switch). Project extension: 'run' prefix for motor run coils."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable instrument name for HMI tooltips and training documentation (e.g., 'Intake Flow Rate', 'Dissolved Oxygen Setpoint')."
+        },
+        "isa_type": {
+          "type": "string",
+          "description": "ISA-5.1 instrument type prefix. First letter = measured variable (F=flow, A=analyzer, T=temperature, P=pressure, L=level, Z=position, V=vibration, S=speed/switch), subsequent letters = function (T=transmitter, C=controller, I=indicator, S=switch, Q=quantity/totalizer). Project conventions: 'run' = motor run status coil, 'FIC' = flow indicating controller, 'HS' = hand switch for SCADA-initiated commands. See ISA-5.1-2009 for the full standard."
+        },
+        "placement": {
+          "type": "string",
+          "description": "Placement ID from the environment definition where this instrument's register resides. Must match the stage controller placement or a gateway placement in the environment."
+        },
+        "register": {
+          "type": "object",
+          "description": "Modbus register mapping for this instrument.",
+          "required": ["type", "address"],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "description": "Modbus register type. holding: 16-bit holding register (FC03 read, FC06/FC16 write). coil: single-bit discrete output (FC01 read, FC05/FC15 write).",
+              "enum": ["holding", "coil"]
+            },
+            "address": {
+              "type": "integer",
+              "description": "Modbus register address. Interpretation depends on the controlling device's addressing convention (zero-based or one-based per the device atom).",
+              "minimum": 0
+            }
+          }
+        },
+        "unit": {
+          "type": "string",
+          "description": "Engineering unit for this instrument's value (e.g., 'L/s', 'mg/L', 'degC', '%', 'bool', 'PSI'). Use 'bool' for coil-type instruments representing discrete on/off states. Unit strings are not enum-constrained at this schema version -- see td-schema-081."
+        },
+        "scale": {
+          "type": "array",
+          "description": "Engineering unit range as [min, max] for holding-register instruments. Defines the mapping between raw 16-bit register values and engineering units. Omit for coil-type instruments (unit: 'bool') -- coils have no scale, they represent binary states.",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "number"
+          }
+        },
+        "thresholds": {
+          "type": "object",
+          "description": "Alarm and warning threshold values in engineering units. All threshold fields are optional. High-side thresholds: warning (approaching limit), alarm (limit exceeded). Low-side thresholds: warning_low (approaching minimum), alarm_low (minimum exceeded). Threshold ordering convention: alarm_low < warning_low < warning < alarm.",
+          "additionalProperties": false,
+          "properties": {
+            "warning": {
+              "type": "number",
+              "description": "High-side warning threshold in engineering units. Exceeding this value indicates the process is approaching an unsafe operating limit."
+            },
+            "alarm": {
+              "type": "number",
+              "description": "High-side alarm threshold in engineering units. Exceeding this value indicates the process has exceeded an unsafe operating limit requiring operator action."
+            },
+            "warning_low": {
+              "type": "number",
+              "description": "Low-side warning threshold in engineering units. Falling below this value indicates the process is approaching a minimum operating limit."
+            },
+            "alarm_low": {
+              "type": "number",
+              "description": "Low-side alarm threshold in engineering units. Falling below this value indicates the process has breached a minimum operating limit requiring operator action."
+            }
+          }
+        }
+      }
+    },
+    "Connection": {
+      "type": "object",
+      "description": "A physical flow connection between two equipment items in the process. Defines the topology of the flow path for process visualization and training scenario context.",
+      "required": ["from", "to", "type", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string",
+          "description": "Source equipment ID (matches an id field in the equipment array)."
+        },
+        "to": {
+          "type": "string",
+          "description": "Destination equipment ID (matches an id field in the equipment array)."
+        },
+        "type": {
+          "type": "string",
+          "description": "Connection medium type. pipe: liquid process connection (water, wastewater, slurry, gas). duct: air or gas delivery connection (blower discharge to diffusers).",
+          "enum": ["pipe", "duct"]
+        },
+        "label": {
+          "type": "string",
+          "description": "Human-readable description of what flows through this connection (e.g., 'Raw influent to screening', 'Compressed air to basin diffusers')."
+        }
+      }
+    },
+    "NetworkContext": {
+      "type": "object",
+      "description": "A security-relevant network element overlaying the process topology. Documents WAN links, internet gateways, and other connectivity that affects the OT attack surface. Used in threat modeling and scenario narrative.",
+      "required": ["id", "type", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this network context element within the process definition."
+        },
+        "type": {
+          "type": "string",
+          "description": "Network context element type. internet_gateway: a device providing internet connectivity to the OT network (e.g., cellular modem, VPN concentrator). wan_link: a wide-area network connection to a remote control center or SCADA master.",
+          "enum": ["internet_gateway", "wan_link"]
+        },
+        "label": {
+          "type": "string",
+          "description": "Human-readable label for this network context element in process diagrams and training materials."
+        },
+        "era": {
+          "type": "integer",
+          "description": "Installation year of this network connectivity element. Used to document when internet exposure or WAN connectivity was introduced to the OT environment."
+        },
+        "placement": {
+          "type": "string",
+          "description": "Placement ID from the environment definition of the device that provides this network connectivity (e.g., the Cradlepoint placement ID for an internet_gateway element)."
+        },
+        "warning": {
+          "type": "string",
+          "description": "Security warning text describing the risk this network element introduces to the OT environment. Displayed in HMI overlays and training scenario context panels."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional context notes about this network element's installation history, configuration, and operational implications for training scenarios."
+        }
+      }
+    }
+  }
+}

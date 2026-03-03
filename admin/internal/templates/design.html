@@ -1,0 +1,113 @@
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">Design Library</h4>
+</div>
+
+<!-- Devices Section -->
+<div class="card mb-4">
+    <div class="card-header">
+        <strong>Devices ({{len .Cache.Devices}})</strong>
+    </div>
+    {{if .Cache.Devices}}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>ID</th>
+                    <th>Vendor</th>
+                    <th>Model</th>
+                    <th>Category</th>
+                    <th>Vintage</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Cache.Devices}}
+                <tr>
+                    <td class="font-monospace">{{.ID}}</td>
+                    <td>{{.Vendor}}</td>
+                    <td>{{.Model}}</td>
+                    <td><span class="badge bg-secondary">{{.Category}}</span></td>
+                    <td>{{if .Vintage}}{{.Vintage}}{{else}}&mdash;{{end}}</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+    {{else}}
+    <div class="card-body text-muted">No device atoms found.</div>
+    {{end}}
+</div>
+
+<!-- Networks Section -->
+<div class="card mb-4">
+    <div class="card-header">
+        <strong>Networks ({{len .Cache.Networks}})</strong>
+    </div>
+    {{if .Cache.Networks}}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>ID</th>
+                    <th>Type</th>
+                    <th>Subnet</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Cache.Networks}}
+                <tr>
+                    <td class="font-monospace">{{.ID}}</td>
+                    <td><span class="badge bg-secondary">{{.Type}}</span></td>
+                    <td class="font-monospace">{{.Subnet}}</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+    {{else}}
+    <div class="card-body text-muted">No network atoms found.</div>
+    {{end}}
+</div>
+
+<!-- Environments Section -->
+<div class="card mb-4">
+    <div class="card-header">
+        <strong>Environments ({{len .Cache.Environments}})</strong>
+    </div>
+    {{if .Cache.Environments}}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Devices</th>
+                    <th>Networks</th>
+                    <th>Process Flow</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Cache.Environments}}
+                <tr>
+                    <td class="font-monospace">{{.ID}}</td>
+                    <td>{{.Name}}</td>
+                    <td>{{.DeviceCount}}</td>
+                    <td>{{.NetworkCount}}</td>
+                    <td>
+                        {{if .HasProcess}}
+                        <span class="badge bg-success">Defined</span>
+                        {{else}}
+                        <span class="badge bg-secondary">None</span>
+                        {{end}}
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+    {{else}}
+    <div class="card-body text-muted">No environments found.</div>
+    {{end}}
+</div>
+
+{{end}}

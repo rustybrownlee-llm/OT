@@ -11,6 +11,8 @@
 //	GET /api/alerts/{id}                  -- single alert detail
 //	POST /api/alerts/{id}/acknowledge     -- acknowledge an alert
 //	GET /api/baselines                    -- per-device baseline status
+//	POST /api/baselines/reset             -- reset all device baselines (admin CLI)
+//	POST /api/baselines/{deviceID}/reset  -- reset single device baseline (admin CLI)
 package api
 
 import (
@@ -91,6 +93,10 @@ func NewRouter(inv *inventory.Inventory, state *poller.PollState, pollIntervalSe
 	r.Get("/api/alerts/{id}", alertByIDHandler(alertStore))
 	r.Post("/api/alerts/{id}/acknowledge", acknowledgeAlertHandler(alertStore))
 	r.Get("/api/baselines", baselinesHandler(engine))
+
+	// SOW-035.0: admin CLI baseline reset endpoints.
+	r.Post("/api/baselines/reset", resetAllBaselinesHandler(engine))
+	r.Post("/api/baselines/{deviceID}/reset", resetDeviceBaselineHandler(engine))
 
 	return r
 }
@@ -316,6 +322,40 @@ func overallHealth(online, offline int) string {
 		return "degraded"
 	default:
 		return "healthy"
+	}
+}
+
+// resetAllBaselinesHandler handles POST /api/baselines/reset.
+// Resets all device baselines to the learning state. knownDeviceIDs is preserved
+// to prevent false "new device" alerts during the re-learning window.
+func resetAllBaselinesHandler(engine *baseline.Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		count := engine.Reset()
+		writeJSON(w, http.StatusOK, map[string]any{
+			"message": "baseline reset initiated for all devices",
+			"devices": count,
+		})
+	}
+}
+
+// resetDeviceBaselineHandler handles POST /api/baselines/{deviceID}/reset.
+// Resets a single device's baseline to the learning state.
+// Returns 404 if the device ID is not found.
+func resetDeviceBaselineHandler(engine *baseline.Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		deviceID := chi.URLParam(r, "deviceID")
+		ok := engine.ResetDevice(deviceID)
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]string{
+				"error":     "device not found in baseline engine",
+				"device_id": deviceID,
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"message": "baseline reset initiated for device",
+			"devices": 1,
+		})
 	}
 }
 

@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log/slog"
@@ -32,6 +33,20 @@ type Dashboard struct {
 	base *template.Template
 }
 
+// svgFuncMap provides arithmetic and formatting functions used by SVG templates.
+// Go html/template has no built-in arithmetic; these are required for computing
+// SVG coordinates (left, top, right, bottom) from center + dimensions.
+var svgFuncMap = template.FuncMap{
+	"add":     func(a, b float64) float64 { return a + b },
+	"sub":     func(a, b float64) float64 { return a - b },
+	"mul":     func(a, b float64) float64 { return a * b },
+	"div":     func(a, b float64) float64 { return a / b },
+	"f1":      func(v float64) string { return fmt.Sprintf("%.1f", v) },
+	"f0":      func(v float64) string { return fmt.Sprintf("%.0f", v) },
+	"half":    func(v float64) float64 { return v / 2.0 },
+	"float64": func(v int) float64 { return float64(v) },
+}
+
 // NewDashboard creates a Dashboard, parsing shared templates eagerly.
 // If template parsing fails, the program exits (template.Must pattern).
 func NewDashboard(api *APIClient, lib *DesignLibrary) *Dashboard {
@@ -41,7 +56,8 @@ func NewDashboard(api *APIClient, lib *DesignLibrary) *Dashboard {
 	}
 	// Parse only the shared templates (layout, nav, badge, shared partials).
 	// Page-specific templates are cloned and extended per render.
-	d.base = template.Must(template.New("").ParseFS(templates.FS,
+	// svgFuncMap is registered for all templates including process view SVG helpers.
+	d.base = template.Must(template.New("").Funcs(svgFuncMap).ParseFS(templates.FS,
 		"layout.html",
 		"partials/nav.html",
 		"partials/badge.html",
@@ -51,6 +67,10 @@ func NewDashboard(api *APIClient, lib *DesignLibrary) *Dashboard {
 		"asset_registers.html",
 		"alerts_table.html",
 		"partials/topology_view.html",
+		"partials/process_symbols.html",
+		"partials/process_instruments.html",
+		"partials/process_connections.html",
+		"partials/process_network_context.html",
 	))
 	d.router = d.buildRouter()
 	return d
@@ -96,6 +116,7 @@ func (d *Dashboard) buildRouter() chi.Router {
 // render parses the named page template into a clone of the base template set
 // and executes the "layout" template. Cloning avoids named-template conflicts
 // between pages that each define their own "content" block.
+// Clone() preserves the FuncMap registered in NewDashboard.
 func (d *Dashboard) render(w http.ResponseWriter, name string, data any) {
 	t, err := template.Must(d.base.Clone()).ParseFS(templates.FS, name)
 	if err != nil {

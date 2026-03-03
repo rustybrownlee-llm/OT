@@ -1,0 +1,563 @@
+# process.yaml - Water Treatment Process Schematic
+# Greenfield Water and Manufacturing Facility -- water treatment side only.
+# Maps every physical equipment item and instrument to its Modbus register address
+# on the three water treatment PLCs (wt-plc-01, wt-plc-02, wt-plc-03).
+#
+# Treatment strategy: raw water passes through a travelling screen (debris removal),
+# then a sand filter (particle removal), then receives sodium hypochlorite dosing
+# (FIC-202 sets the rate), and finally UV disinfection (RT-203 monitors lamp intensity).
+# Chlorine is dosed post-filtration to avoid quenching UV wavelengths; trainees should
+# note that FIC-202 (chemical feed) appears upstream of RT-203 (UV) in the flow path.
+#
+# ISA-5.1 tagging principle applied throughout:
+# - Transmitter-suffix tags (FT, PT, AT, TT, LT, RT, PDT, LS, ZS): read-only measurements
+# - Controller-suffix tags (SC, FIC): writable setpoints commanding actuators
+# - HS: Hand Switch convention retained for SCADA-initiated discrete commands (TD-048)
+# - run: project extension for binary pump/UV coil run commands (not ISA-5.1 standard)
+#
+# Known gaps documented here (see also SOW-023.0 technical debt):
+# - No clear well inlet flow meter (TD-047): no register exists for treated water inflow rate
+# - FT-301 physically resides on discharge piping, not on the clear well vessel (grouped
+#   under clear-well for layout simplicity; SVG rendering in SOW-025.0 may reposition it)
+# - Intake Pump 2, Distribution Pump 2, and Booster Pump are parallel/backup equipment;
+#   the linear connection model does not represent branching paths (TD-046)
+schema_version: "0.1"
+
+process:
+  id: "greenfield-water-mfg"
+  name: "Greenfield Water Treatment"
+  description: >
+    Three-stage potable water treatment process: raw water intake, filtration and
+    disinfection (chlorination + UV), and distribution to the cross-plant supply header.
+    Conventional sand filtration followed by combined chemical and UV disinfection.
+  flow_direction: "horizontal"
+
+stages:
+  # ---------------------------------------------------------------------------
+  # Stage 1: Raw Water Intake
+  # Controller: wt-plc-01 (CompactLogix L33ER, port 5020, variant water-intake)
+  # Five holding registers (HR 0-4) and four coils (coil 0-3).
+  # ---------------------------------------------------------------------------
+  - id: "intake"
+    name: "Raw Water Intake"
+    controller:
+      placement: "wt-plc-01"
+      device: "compactlogix-l33er"
+    equipment:
+      # Travelling Screen: removes large debris (leaves, fish, solids) from raw water
+      # before it enters the intake basin. The screen rotates continuously; wash cycle
+      # status is exposed as a read-only coil (ZS-101).
+      - id: "travelling-screen-01"
+        type: "screen"
+        label: "Travelling Screen"
+        era: 2024
+        instruments:
+          - tag: "ZS-101"
+            name: "Screen Wash Active"
+            isa_type: "ZS"
+            # ZS = Position Switch. This coil indicates that the automated wash
+            # spray cycle is active, not that a specific valve is open or closed.
+            # ZSC (Position Switch, Closed) would not apply here.
+            placement: "wt-plc-01"
+            register:
+              type: "coil"
+              address: 2
+            unit: "bool"
+
+      # Raw Water Intake Basin: open concrete structure (not a pressure vessel),
+      # hence type "basin" not "tank". Collects raw water from the intake pump well.
+      # Instruments on this equipment monitor raw water quality before treatment.
+      - id: "raw-water-basin"
+        type: "basin"
+        label: "Raw Water Intake Basin"
+        era: 2024
+        instruments:
+          - tag: "FT-101"
+            name: "Intake Flow Rate"
+            isa_type: "FT"
+            # Read-only inline flow meter -- raw water intake rate in L/s.
+            # High-side alarms only: high intake flow overloads treatment capacity.
+            placement: "wt-plc-01"
+            register:
+              type: "holding"
+              address: 0
+            unit: "L/s"
+            scale: [0.0, 100.0]
+            thresholds:
+              warning: 80.0
+              alarm: 95.0
+
+          - tag: "AT-101"
+            name: "Raw Water pH"
+            isa_type: "AT"
+            # Read-only analyzer. pH extremes affect chlorination efficiency and
+            # filtration chemistry; no thresholds defined in this SOW (future).
+            placement: "wt-plc-01"
+            register:
+              type: "holding"
+              address: 2
+            unit: "pH"
+            scale: [0.0, 14.0]
+
+          - tag: "AT-102"
+            name: "Raw Water Turbidity"
+            isa_type: "AT"
+            # Read-only analyzer. High turbidity (NTU) overloads the sand filter;
+            # most water plants intervene at 10-30 NTU. Warning at 20, alarm at 40.
+            placement: "wt-plc-01"
+            register:
+              type: "holding"
+              address: 3
+            unit: "NTU"
+            scale: [0.0, 100.0]
+            thresholds:
+              warning: 20.0
+              alarm: 40.0
+
+          - tag: "TT-101"
+            name: "Intake Water Temperature"
+            isa_type: "TT"
+            # Read-only temperature transmitter. No thresholds in this SOW.
+            placement: "wt-plc-01"
+            register:
+              type: "holding"
+              address: 4
+            unit: "degC"
+            scale: [0.0, 40.0]
+
+          - tag: "LS-101"
+            name: "Low Well Level Alarm"
+            isa_type: "LS"
+            # Read-only discrete level switch (float switch or electrode) on the intake
+            # basin. Activates when water level drops below the minimum safe threshold.
+            # LS (Level Switch) is the correct ISA-5.1 prefix for a discrete alarm contact.
+            placement: "wt-plc-01"
+            register:
+              type: "coil"
+              address: 3
+            unit: "bool"
+
+      # Intake Pump 1: primary raw water pump from intake basin to sand filter.
+      # SC-101 is a writable Speed Controller setpoint commanding the VFD.
+      # Using SC (Speed Controller) not ST (Speed Transmitter): this is a writable
+      # command output, not a read-only measurement. run-P-101 is the binary run coil.
+      - id: "intake-pump-01"
+        type: "pump"
+        label: "Intake Pump 1"
+        era: 2024
+        instruments:
+          - tag: "run-P-101"
+            name: "Intake Pump 1 Run"
+            isa_type: "run"
+            # Project extension: binary coil commanding pump start/stop (0=stop, 1=run).
+            placement: "wt-plc-01"
+            register:
+              type: "coil"
+              address: 0
+            unit: "bool"
+
+          - tag: "SC-101"
+            name: "Intake Pump Speed"
+            isa_type: "SC"
+            # Writable VFD speed setpoint (0-100%). SC = Speed Controller per ISA-5.1.
+            # Teaching point: this register is writable -- an attacker who writes 0
+            # stops the pump; writing 100 drives the pump at maximum speed.
+            placement: "wt-plc-01"
+            register:
+              type: "holding"
+              address: 1
+            unit: "%"
+            scale: [0.0, 100.0]
+
+      # Intake Pump 2: parallel/standby raw water pump.
+      # Listed as equipment for layout completeness; not in the main flow path connection
+      # chain (linear connection model does not support parallel branches -- TD-046).
+      - id: "intake-pump-02"
+        type: "pump"
+        label: "Intake Pump 2"
+        era: 2024
+        instruments:
+          - tag: "run-P-102"
+            name: "Intake Pump 2 Run"
+            isa_type: "run"
+            placement: "wt-plc-01"
+            register:
+              type: "coil"
+              address: 1
+            unit: "bool"
+
+  # ---------------------------------------------------------------------------
+  # Stage 2: Water Treatment
+  # Controller: wt-plc-02 (CompactLogix L33ER, port 5021, variant water-treatment)
+  # Seven holding registers (HR 0-6) and four coils (coil 0-3).
+  # Treatment strategy: sand filtration -> chlorine dosing -> UV disinfection.
+  # ---------------------------------------------------------------------------
+  - id: "treatment"
+    name: "Water Treatment"
+    controller:
+      placement: "wt-plc-02"
+      device: "compactlogix-l33er"
+    equipment:
+      # Sand Filter: pressurized vessel containing filter media.
+      # Differential pressure (PDT-201) is the primary fouling indicator:
+      # when dP rises to 15-25 kPa, backwash is triggered (HS-201).
+      # Post-filter turbidity (AT-201) is the compliance measurement point.
+      - id: "sand-filter-01"
+        type: "tank"
+        label: "Sand Filter"
+        era: 2024
+        instruments:
+          - tag: "PT-201"
+            name: "Filter Inlet Pressure"
+            isa_type: "PT"
+            # Read-only pressure transmitter upstream of filter media.
+            placement: "wt-plc-02"
+            register:
+              type: "holding"
+              address: 0
+            unit: "kPa"
+            scale: [0.0, 500.0]
+
+          - tag: "PT-202"
+            name: "Filter Outlet Pressure"
+            isa_type: "PT"
+            # Read-only pressure transmitter downstream of filter media.
+            placement: "wt-plc-02"
+            register:
+              type: "holding"
+              address: 1
+            unit: "kPa"
+            scale: [0.0, 500.0]
+
+          - tag: "PDT-201"
+            name: "Filter Differential Pressure"
+            isa_type: "PDT"
+            # Read-only differential pressure transmitter across the filter bed.
+            # Normal operating range: 5-15 kPa. Backwash trigger: 15-25 kPa.
+            # Vessel damage risk above 50 kPa (scale max).
+            placement: "wt-plc-02"
+            register:
+              type: "holding"
+              address: 2
+            unit: "kPa"
+            scale: [0.0, 50.0]
+            thresholds:
+              warning: 15.0
+              alarm: 25.0
+
+          - tag: "AT-201"
+            name: "Turbidity Post-Filter"
+            isa_type: "AT"
+            # Read-only analyzer. Regulatory compliance point: treated water
+            # must be < 1 NTU. warning_low=1.0 (approaching limit);
+            # alarm_low=0.5 (implausibly low -- possible sensor failure).
+            # NOTE: alarm_low < warning_low (alarm is more severe than warning).
+            placement: "wt-plc-02"
+            register:
+              type: "holding"
+              address: 6
+            unit: "NTU"
+            scale: [0.0, 5.0]
+            thresholds:
+              warning_low: 1.0
+              alarm_low: 0.5
+
+          - tag: "HS-201"
+            name: "Filter Backwash Command"
+            isa_type: "HS"
+            # Writable coil initiating the automated backwash sequence.
+            # HS (Hand Switch) is retained as a common water industry convention
+            # for SCADA-initiated discrete commands, even though strictly HS refers
+            # to a local panel button (TD-048). A single coil write triggers a
+            # multi-minute automated cycle managed by the PLC ladder logic.
+            placement: "wt-plc-02"
+            register:
+              type: "coil"
+              address: 0
+            unit: "bool"
+
+          - tag: "HS-202"
+            name: "High DP Alarm"
+            isa_type: "HS"
+            # Read-only alarm status coil: filter differential pressure has exceeded
+            # the backwash threshold. Grouped on the sand filter where the PDT-201
+            # transmitter is also located.
+            placement: "wt-plc-02"
+            register:
+              type: "coil"
+              address: 3
+            unit: "bool"
+
+      # Chemical Feed Pump: sodium hypochlorite dosing pump.
+      # FIC-202 is a writable Flow Indicating Controller setpoint (mL/min dosing rate).
+      # Using FIC (Flow Indicating Controller) not FT (Flow Transmitter): this is a
+      # writable setpoint commanding the dosing rate, not a read-only measurement.
+      # AT-202 (read-only chlorine residual) is the feedback sensor downstream.
+      - id: "chemical-feed-01"
+        type: "pump"
+        label: "Chemical Feed Pump"
+        era: 2024
+        instruments:
+          - tag: "FIC-202"
+            name: "Chemical Feed Rate"
+            isa_type: "FIC"
+            # Writable sodium hypochlorite dosing rate setpoint (0-500 mL/min).
+            # FIC = Flow Indicating Controller -- the defining writable setpoint
+            # for the chemical dosing loop. Teaching point: writing 0 stops dosing
+            # and chlorine residual drops; overdosing (writing maximum) risks
+            # harmful THM formation and chlorine toxicity downstream.
+            placement: "wt-plc-02"
+            register:
+              type: "holding"
+              address: 4
+            unit: "mL/min"
+            scale: [0.0, 500.0]
+
+          - tag: "AT-202"
+            name: "Chlorine Residual"
+            isa_type: "AT"
+            # Read-only chlorine residual analyzer downstream of the dosing point.
+            # Bidirectional thresholds: high = overdosing risk (harmful byproducts),
+            # low = inadequate disinfection (public health risk).
+            # Threshold ordering: alarm_low(0.2) < warning_low(0.3) < warning(3.0) < alarm(4.0).
+            placement: "wt-plc-02"
+            register:
+              type: "holding"
+              address: 5
+            unit: "mg/L"
+            scale: [0.0, 5.0]
+            thresholds:
+              warning: 3.0
+              alarm: 4.0
+              warning_low: 0.3
+              alarm_low: 0.2
+
+          - tag: "run-P-201"
+            name: "Chemical Feed Pump Run"
+            isa_type: "run"
+            # Project extension: binary coil commanding dosing pump start/stop.
+            placement: "wt-plc-02"
+            register:
+              type: "coil"
+              address: 1
+            unit: "bool"
+
+      # UV Sterilization System: UV lamps providing the primary disinfection barrier.
+      # Positioned downstream of chlorine dosing point because high chlorine concentrations
+      # can absorb UV wavelengths, reducing effectiveness. The UV system provides a
+      # second disinfection mechanism independent of chlorine residual.
+      - id: "uv-system-01"
+        type: "uv_system"
+        label: "UV Sterilization"
+        era: 2024
+        instruments:
+          - tag: "RT-203"
+            name: "UV Intensity"
+            isa_type: "RT"
+            # Read-only UV lamp intensity from an inline photodiode detector.
+            # RT = Radiation Transmitter per ISA-5.1 -- the correct prefix for
+            # radiant power measurement. AT (Analyzer Transmitter) would be wrong:
+            # AT is for water chemistry measurements (pH, turbidity, chlorine).
+            # Low-side alarms only: low UV intensity risks inadequate disinfection.
+            # alarm_low(20) < warning_low(30): alarm is more severe than warning.
+            placement: "wt-plc-02"
+            register:
+              type: "holding"
+              address: 3
+            unit: "mW/cm2"
+            scale: [0.0, 100.0]
+            thresholds:
+              warning_low: 30.0
+              alarm_low: 20.0
+
+          - tag: "run-UV-201"
+            name: "UV System Active"
+            isa_type: "run"
+            # Read-only status coil: UV system is energized. The device atom marks
+            # this coil as writable: false (status, not a command coil).
+            placement: "wt-plc-02"
+            register:
+              type: "coil"
+              address: 2
+            unit: "bool"
+
+  # ---------------------------------------------------------------------------
+  # Stage 3: Distribution
+  # Controller: wt-plc-03 (CompactLogix L33ER, port 5022, variant water-distribution)
+  # Five holding registers (HR 0-4) and three coils (coil 0-2).
+  # ---------------------------------------------------------------------------
+  - id: "distribution"
+    name: "Distribution"
+    controller:
+      placement: "wt-plc-03"
+      device: "compactlogix-l33er"
+    equipment:
+      # Clear Well: finished water storage reservoir before distribution pumping.
+      # All five holding registers from the water-distribution variant are represented here.
+      # Known gap: FT-301 (distribution_flow_rate) physically resides on the discharge
+      # piping, not on the clear well vessel. Grouped here for layout simplicity;
+      # SVG rendering (SOW-025.0) may reposition FT-301 on the outlet pipe (TD-047).
+      # No clear well INLET flow meter exists in the device atom -- a known gap (TD-047).
+      - id: "clear-well"
+        type: "tank"
+        label: "Clear Well"
+        era: 2024
+        instruments:
+          - tag: "LT-301"
+            name: "Clear Well Level"
+            isa_type: "LT"
+            # Read-only level transmitter. Bidirectional thresholds:
+            # high = overflow risk; low = pump cavitation / dry-run damage.
+            # Threshold ordering: alarm_low(10) < warning_low(20) < warning(90) < alarm(95).
+            placement: "wt-plc-03"
+            register:
+              type: "holding"
+              address: 0
+            unit: "%"
+            scale: [0.0, 100.0]
+            thresholds:
+              warning: 90.0
+              alarm: 95.0
+              warning_low: 20.0
+              alarm_low: 10.0
+
+          - tag: "FT-301"
+            name: "Distribution Flow Rate"
+            isa_type: "FT"
+            # Read-only flow transmitter on the distribution header discharge piping.
+            # Grouped under clear-well for layout; physically on the outlet pipe.
+            placement: "wt-plc-03"
+            register:
+              type: "holding"
+              address: 1
+            unit: "L/s"
+            scale: [0.0, 150.0]
+
+          - tag: "PT-301"
+            name: "Distribution Pressure"
+            isa_type: "PT"
+            # Read-only distribution header pressure. Bidirectional thresholds:
+            # high = overpressure risk; low = insufficient supply pressure to cross-plant.
+            # Threshold ordering: alarm_low(100) < warning_low(200) < warning(600) < alarm(650).
+            placement: "wt-plc-03"
+            register:
+              type: "holding"
+              address: 2
+            unit: "kPa"
+            scale: [0.0, 700.0]
+            thresholds:
+              warning: 600.0
+              alarm: 650.0
+              warning_low: 200.0
+              alarm_low: 100.0
+
+          - tag: "AT-301"
+            name: "Residual Chlorine"
+            isa_type: "AT"
+            # Read-only analyzer. Finished water chlorine residual -- regulatory
+            # compliance point for water leaving the plant.
+            placement: "wt-plc-03"
+            register:
+              type: "holding"
+              address: 3
+            unit: "mg/L"
+            scale: [0.0, 5.0]
+
+          - tag: "TT-301"
+            name: "Distribution Water Temperature"
+            isa_type: "TT"
+            # Read-only temperature transmitter. Finished water temperature.
+            placement: "wt-plc-03"
+            register:
+              type: "holding"
+              address: 4
+            unit: "degC"
+            scale: [0.0, 40.0]
+
+      # Distribution Pump 1: primary finished water pump to distribution header.
+      - id: "distribution-pump-01"
+        type: "pump"
+        label: "Distribution Pump 1"
+        era: 2024
+        instruments:
+          - tag: "run-P-301"
+            name: "Distribution Pump 1 Run"
+            isa_type: "run"
+            placement: "wt-plc-03"
+            register:
+              type: "coil"
+              address: 0
+            unit: "bool"
+
+      # Distribution Pump 2: standby distribution pump (parallel with Pump 1).
+      # Not in the main connection chain -- parallel backup path (TD-046).
+      - id: "distribution-pump-02"
+        type: "pump"
+        label: "Distribution Pump 2"
+        era: 2024
+        instruments:
+          - tag: "run-P-302"
+            name: "Distribution Pump 2 Run"
+            isa_type: "run"
+            placement: "wt-plc-03"
+            register:
+              type: "coil"
+              address: 1
+            unit: "bool"
+
+      # Booster Pump: provides additional pressure for the cross-plant supply header.
+      # Not in the main connection chain -- operates in parallel when higher pressure
+      # is required (TD-046).
+      - id: "booster-pump-01"
+        type: "pump"
+        label: "Booster Pump"
+        era: 2024
+        instruments:
+          - tag: "run-P-303"
+            name: "Booster Pump Run"
+            isa_type: "run"
+            placement: "wt-plc-03"
+            register:
+              type: "coil"
+              address: 2
+            unit: "bool"
+
+# Physical process connections -- main flow path from intake to distribution.
+# Parallel/backup equipment (intake-pump-02, distribution-pump-02, booster-pump-01)
+# is represented as equipment in their stages but not in this connection chain;
+# the linear connection model does not support branching or merging paths (TD-046).
+connections:
+  - from: "travelling-screen-01"
+    to: "raw-water-basin"
+    type: "pipe"
+    label: "Screened raw water to intake basin"
+
+  - from: "raw-water-basin"
+    to: "intake-pump-01"
+    type: "pipe"
+    label: "Raw water from intake basin to pump suction"
+
+  - from: "intake-pump-01"
+    to: "sand-filter-01"
+    type: "pipe"
+    label: "Raw water to sand filter"
+
+  - from: "sand-filter-01"
+    to: "chemical-feed-01"
+    type: "pipe"
+    label: "Filtered water to chlorine dosing point"
+
+  - from: "chemical-feed-01"
+    to: "uv-system-01"
+    type: "pipe"
+    label: "Chlorinated water to UV disinfection"
+
+  - from: "uv-system-01"
+    to: "clear-well"
+    type: "pipe"
+    label: "Treated water to clear well storage"
+
+  - from: "clear-well"
+    to: "distribution-pump-01"
+    type: "pipe"
+    label: "Finished water to distribution pumping"

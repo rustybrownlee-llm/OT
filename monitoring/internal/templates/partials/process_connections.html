@@ -1,0 +1,63 @@
+{{/* process_connections.html - Pipe and duct SVG path rendering.
+
+     Pipe conventions (SOW-022.0 layout algorithm):
+     - Arrowheads at pipe endpoints using the "arrow" marker defined in SVG <defs>
+     - For pipes > 300px, a mid-pipe arrow is added using the "mid-arrow" marker
+     - Pipes: solid stroke, grey (#6c757d)
+     - Ducts: dashed stroke, orange (#fd7e14), wider stroke
+
+     Connection routing is straight lines only (TD-042). Orthogonal routing
+     and bend points are deferred to a future SOW. */}}
+
+{{/* svg_connections: Renders all connections as SVG path elements.
+     Accepts ProcessViewData. Uses the Defs.ArrowMarkerID reference. */}}
+{{define "svg_connections"}}
+{{$defs := .Defs}}
+{{range .Connections}}
+{{$isDuct := eq .Type "duct"}}
+{{$stroke := "#6c757d"}}
+{{$strokeW := "2"}}
+{{$dashArray := ""}}
+{{if $isDuct}}
+  {{$stroke = "#fd7e14"}}
+  {{$strokeW = "3"}}
+  {{$dashArray = "6,3"}}
+{{end}}
+<g class="process-connection {{if $isDuct}}conn-duct{{else}}conn-pipe{{end}}">
+  <path d="{{.PathData}}"
+        fill="none"
+        stroke="{{$stroke}}"
+        stroke-width="{{$strokeW}}"
+        {{if $dashArray}}stroke-dasharray="{{$dashArray}}"{{end}}
+        {{if .ArrowEnd}}marker-end="url(#{{$defs.ArrowMarkerID}})"{{end}}/>
+  {{/* Label if present */}}
+  {{if .Label}}
+  <text class="conn-label" font-size="9" fill="#6c757d">
+    <textPath href="#path-{{.FromID}}-{{.ToID}}" startOffset="40%">{{.Label}}</textPath>
+  </text>
+  {{end}}
+</g>
+{{end}}
+{{end}}
+
+{{/* svg_defs: SVG <defs> section with arrowhead markers and gradient definitions.
+     Must be included inside the <svg> element before any path references. */}}
+{{define "svg_defs"}}
+<defs>
+  {{/* Flow direction arrowhead marker -- endpoint arrow */}}
+  <marker id="{{.ArrowMarkerID}}" markerWidth="8" markerHeight="6"
+          refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#6c757d"/>
+  </marker>
+  {{/* Mid-pipe arrowhead marker -- same shape, for long pipes */}}
+  <marker id="{{.MidArrowMarkerID}}" markerWidth="8" markerHeight="6"
+          refX="4" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#6c757d"/>
+  </marker>
+  {{/* Duct arrowhead */}}
+  <marker id="arrow-duct" markerWidth="8" markerHeight="6"
+          refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#fd7e14"/>
+  </marker>
+</defs>
+{{end}}

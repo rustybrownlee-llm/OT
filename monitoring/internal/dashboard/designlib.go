@@ -15,10 +15,11 @@ import (
 // Loaded once at startup. Read-only after initialization.
 // ADR-005 D4: this does NOT import plant packages. All types are defined locally.
 type DesignLibrary struct {
-	Devices      map[string]*DeviceAtom    // keyed by device ID
-	Networks     map[string]*NetworkAtom   // keyed by network ID
-	Environments map[string]*EnvironmentDef // keyed by environment ID
-	RawYAML      map[string]string         // keyed by "<type>/<id>", raw content for display
+	Devices      map[string]*DeviceAtom      // keyed by device ID
+	Networks     map[string]*NetworkAtom     // keyed by network ID
+	Environments map[string]*EnvironmentDef  // keyed by environment ID
+	Schematics   map[string]*ProcessSchematic // keyed by environment ID; optional per env
+	RawYAML      map[string]string           // keyed by "<type>/<id>", raw content for display
 }
 
 // DeviceAtom is the monitoring-local representation of a device atom YAML.
@@ -184,6 +185,7 @@ func emptyLibrary() *DesignLibrary {
 		Devices:      make(map[string]*DeviceAtom),
 		Networks:     make(map[string]*NetworkAtom),
 		Environments: make(map[string]*EnvironmentDef),
+		Schematics:   make(map[string]*ProcessSchematic),
 		RawYAML:      make(map[string]string),
 	}
 }
@@ -204,11 +206,13 @@ func LoadDesignLibrary(designDir string) (*DesignLibrary, error) {
 	loadDevices(lib, filepath.Join(designDir, "devices"))
 	loadNetworks(lib, filepath.Join(designDir, "networks"))
 	loadEnvironments(lib, filepath.Join(designDir, "environments"))
+	loadProcessSchematics(lib, filepath.Join(designDir, "environments"))
 
 	slog.Info("design library loaded",
 		"devices", len(lib.Devices),
 		"networks", len(lib.Networks),
-		"environments", len(lib.Environments))
+		"environments", len(lib.Environments),
+		"schematics", len(lib.Schematics))
 
 	return lib, nil
 }

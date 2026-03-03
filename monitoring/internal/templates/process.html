@@ -1,0 +1,83 @@
+{{define "content"}}
+<div class="row mb-3">
+  <div class="col">
+    <h2>Process View</h2>
+    <p class="text-muted">Process schematic visualization. Select an environment to view its process flow diagram with live instrument values.</p>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-md-2 col-lg-2">
+    <div class="card mb-3">
+      <div class="card-header fw-semibold small">Environments</div>
+      <div class="list-group list-group-flush">
+        {{range .AllEnvs}}
+        <a href="/process/{{.ID}}"
+           class="list-group-item list-group-item-action small{{if eq .ID $.EnvID}} active{{end}}">
+          <div class="fw-semibold">{{.Name}}</div>
+          {{if .Archetype}}<div class="badge bg-secondary" style="font-size:0.65rem;">{{.Archetype}}</div>{{end}}
+        </a>
+        {{else}}
+        <div class="list-group-item text-muted small">No environments available</div>
+        {{end}}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header fw-semibold small">Legend</div>
+      <div class="card-body small p-2">
+        <div class="mb-2">
+          <div class="fw-semibold text-muted mb-1" style="font-size:0.7rem;">STATUS (SIMULATOR)</div>
+          <div class="d-flex align-items-center gap-1 mb-1">
+            <div style="width:12px;height:12px;background:#28a745;border-radius:50%;"></div>
+            <span>Running / Open</span>
+          </div>
+          <div class="d-flex align-items-center gap-1 mb-1">
+            <div style="width:12px;height:12px;background:#6c757d;border-radius:50%;"></div>
+            <span>Stopped / Closed</span>
+          </div>
+          <div class="d-flex align-items-center gap-1 mb-1">
+            <div style="width:12px;height:12px;background:#dc3545;border-radius:50%;"></div>
+            <span>Alarm / Trip</span>
+          </div>
+          <div class="text-muted" style="font-size:0.65rem;">Not real P&amp;ID practice.</div>
+        </div>
+        <div class="mb-2">
+          <div class="fw-semibold text-muted mb-1" style="font-size:0.7rem;">VALUES</div>
+          <div class="d-flex align-items-center gap-1 mb-1">
+            <div style="width:12px;height:12px;background:#28a745;border-radius:2px;"></div>
+            <span>Normal</span>
+          </div>
+          <div class="d-flex align-items-center gap-1 mb-1">
+            <div style="width:12px;height:12px;background:#ffc107;border-radius:2px;"></div>
+            <span>Warning</span>
+          </div>
+          <div class="d-flex align-items-center gap-1">
+            <div style="width:12px;height:12px;background:#dc3545;border-radius:2px;"></div>
+            <span>Alarm</span>
+          </div>
+        </div>
+        <div>
+          <div class="fw-semibold text-muted mb-1" style="font-size:0.7rem;">ERA MARKERS</div>
+          <div><span class="era-badge era-1990s">1990s</span> 1990&ndash;1999</div>
+          <div><span class="era-badge era-2000s">2000s</span> 2000&ndash;2009</div>
+          <div><span class="era-badge era-2010s">2010s</span> 2010&ndash;2019</div>
+          <div><span class="era-badge era-2020s">2020s</span> 2020+</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-10 col-lg-10">
+    {{/* HTMX polling container: triggers partial update every 2s */}}
+    <div id="process-view"
+         {{if .EnvID}}
+         hx-get="/partials/process-values/{{.EnvID}}"
+         hx-trigger="every 2s"
+         hx-swap="none"
+         {{end}}>
+      {{template "process_svg" .Process}}
+    </div>
+  </div>
+</div>
+{{end}}

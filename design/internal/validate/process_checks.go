@@ -29,6 +29,11 @@ var isaInstrumentPrefixes = map[string]bool{
 	"LT": true, "FT": true, "PT": true, "TT": true, "AT": true,
 	"AIT": true, "PDT": true, "ST": true, "VT": true, "BT": true,
 	"IT": true, "HS": true, "ZS": true, "ZSO": true, "ZSC": true, "FE": true,
+	// Water treatment additions (SOW-023.0):
+	"SC":  true, // Speed Controller -- writable VFD speed setpoint (ISA-5.1 suffix "C" = controller output)
+	"FIC": true, // Flow Indicating Controller -- writable flow setpoint (ISA-5.1 suffix "IC" = indicating controller)
+	"RT":  true, // Radiation Transmitter -- UV lamp intensity from photodiode (not analytical; ISA-5.1 suffix "T")
+	"LS":  true, // Level Switch -- discrete float switch or level alarm contact (ISA-5.1 suffix "S")
 }
 
 // isaEquipmentDesignators lists ISA-5.1 equipment designators.
@@ -118,7 +123,7 @@ func checkISAType(processFile, field, isaType string, r *ValidationResult) {
 		Field: field,
 		Message: fmt.Sprintf(
 			"isa_type %q is not a recognized prefix; "+
-				"ISA-5.1 instrument prefixes: LT, FT, PT, TT, AT, AIT, PDT, ST, VT, BT, IT, HS, ZS, ZSO, ZSC, FE; "+
+				"ISA-5.1 instrument prefixes: LT, FT, FIC, PT, TT, AT, AIT, PDT, RT, SC, LS, ST, VT, BT, IT, HS, ZS, ZSO, ZSC, FE; "+
 				"equipment designators: P, V, B, C, SV, GC, FM; "+
 				"project extension: run (not ISA-5.1 standard)",
 			isaType,

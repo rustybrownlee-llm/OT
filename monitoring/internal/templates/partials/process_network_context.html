@@ -1,0 +1,59 @@
+{{/* process_network_context.html - Network context callout box rendering.
+
+     The network context callout box (RD-4) renders security-relevant network
+     elements (WAN links, internet gateways, wireless bridges) that are topologically
+     distinct from the process flow. It appears below the main process flow SVG
+     with a dashed border to distinguish it visually.
+
+     Each item shows:
+     - Label and type
+     - Era badge (decade-based color) if era is set
+     - Warning text in red if present
+     - Notes in grey if present
+
+     This is distinct from process flow elements -- it teaches IT engineers to
+     identify network topology context visible in process view displays. */}}
+
+{{/* svg_network_context: Renders the network context callout box.
+     Accepts *NetworkContextLayout. Returns nothing if nil. */}}
+{{define "svg_network_context"}}
+{{if .}}
+{{$ctx := .}}
+<g class="network-context-box">
+  {{/* Dashed border callout box -- visually distinct from process flow */}}
+  <rect x="{{f1 $ctx.X}}" y="{{f1 $ctx.Y}}"
+        width="{{f1 $ctx.Width}}" height="{{f1 $ctx.Height}}"
+        rx="4" ry="4"
+        fill="#fff8f0" stroke="#fd7e14"
+        stroke-width="1.5" stroke-dasharray="6,3"/>
+  {{/* Callout box header */}}
+  <text x="{{f1 (add $ctx.X 10)}}" y="{{f1 (add $ctx.Y 18)}}"
+        font-size="10" font-weight="bold" fill="#fd7e14">NETWORK CONTEXT</text>
+  {{/* Item rows */}}
+  {{range $i, $item := $ctx.Items}}
+  {{$rowY := add $ctx.Y (add 32 (mul (float64 $i) 28))}}
+  <g class="nc-item">
+    {{/* Item label */}}
+    <text x="{{f1 (add $ctx.X 10)}}" y="{{f1 $rowY}}"
+          font-size="10" font-weight="bold" fill="#333">{{$item.Label}}</text>
+    {{/* Item type badge */}}
+    <text x="{{f1 (add $ctx.X 10)}}" y="{{f1 (add $rowY 11)}}"
+          font-size="8" fill="#6c757d">{{$item.Type}}</text>
+    {{/* Era badge if present */}}
+    {{if $item.Era}}
+    <rect x="{{f1 (add $ctx.X 100)}}" y="{{f1 (sub $rowY 9)}}"
+          width="34" height="12" rx="3" ry="3"
+          class="era-badge {{$item.EraClass}}"/>
+    <text x="{{f1 (add $ctx.X 117)}}" y="{{f1 (add $rowY 1)}}"
+          text-anchor="middle" font-size="8">{{$item.Era}}</text>
+    {{end}}
+    {{/* Warning text in red */}}
+    {{if $item.Warning}}
+    <text x="{{f1 (add $ctx.X 145)}}" y="{{f1 $rowY}}"
+          font-size="9" fill="#dc3545">{{$item.Warning}}</text>
+    {{end}}
+  </g>
+  {{end}}
+</g>
+{{end}}
+{{end}}

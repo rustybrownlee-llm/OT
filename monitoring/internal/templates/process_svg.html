@@ -1,0 +1,79 @@
+{{/* process_svg.html - Main SVG wrapper for the process view.
+     Renders the full process schematic SVG from ProcessViewData.
+
+     This template is rendered on initial page load. HTMX uses the
+     /partials/process-values/{env-id} endpoint to update only the
+     <text> and <circle> elements without re-rendering the full SVG.
+
+     Template dispatch: each equipment type maps to a named symbol template
+     (svg_tank, svg_pump, etc.) defined in process_symbols.html. */}}
+
+{{define "process_svg"}}
+{{if .}}
+<svg id="process-diagram"
+     viewBox="{{.ViewBox.String}}"
+     preserveAspectRatio="xMidYMid meet"
+     style="width:100%; min-height:300px; max-height:80vh;"
+     xmlns="http://www.w3.org/2000/svg">
+
+  {{/* SVG <defs>: arrowhead markers for pipe/duct connections */}}
+  {{template "svg_defs" .Defs}}
+
+  {{/* Stage groups */}}
+  {{range .Stages}}
+  {{$stage := .}}
+  <g id="stage-{{.ID}}" class="process-stage">
+    {{/* Stage header: name and controller label */}}
+    <rect x="{{f1 .X}}" y="{{f1 .Y}}"
+          width="{{f1 .Width}}" height="{{f1 .Height}}"
+          rx="4" ry="4"
+          fill="none" stroke="#dee2e6" stroke-width="1" stroke-dasharray="4,2"/>
+    <text x="{{f1 (add .X 8)}}" y="{{f1 (add .Y 14)}}"
+          font-size="11" font-weight="600" fill="#495057">{{.Name}}</text>
+    {{if .Controller}}
+    <text x="{{f1 (add .X 8)}}" y="{{f1 (add .Y 26)}}"
+          font-size="9" fill="#6c757d">PLC: {{.Controller}}</text>
+    {{end}}
+
+    {{/* Equipment symbols -- dispatched by type */}}
+    {{range .Equipment}}
+    {{$eq := .}}
+    {{if eq .Type "tank"}}{{template "svg_tank" .}}
+    {{else if eq .Type "basin"}}{{template "svg_basin" .}}
+    {{else if eq .Type "pump"}}{{template "svg_pump" .}}
+    {{else if eq .Type "valve"}}{{template "svg_valve" .}}
+    {{else if eq .Type "blower"}}{{template "svg_blower" .}}
+    {{else if eq .Type "compressor"}}{{template "svg_compressor" .}}
+    {{else if eq .Type "clarifier"}}{{template "svg_clarifier" .}}
+    {{else if eq .Type "screen"}}{{template "svg_screen" .}}
+    {{else if eq .Type "uv_system"}}{{template "svg_uv_system" .}}
+    {{else if eq .Type "meter"}}{{template "svg_meter" .}}
+    {{else if eq .Type "chromatograph"}}{{template "svg_chromatograph" .}}
+    {{else if eq .Type "analyzer_station"}}{{template "svg_analyzer_station" .}}
+    {{else if eq .Type "heat_exchanger"}}{{template "svg_heat_exchanger" .}}
+    {{end}}
+
+    {{/* Equipment label below symbol */}}
+    {{template "svg_equipment_label" .}}
+
+    {{/* Era badge overlay */}}
+    {{template "svg_era_badge" .}}
+
+    {{/* Instrument callout lines and value text */}}
+    {{template "svg_instrument_callout" .}}
+
+    {{end}}{{/* end range equipment */}}
+  </g>
+  {{end}}{{/* end range stages */}}
+
+  {{/* Pipe and duct connections between equipment */}}
+  {{template "svg_connections" .}}
+
+  {{/* Network context callout box (optional, RD-4) */}}
+  {{if .NetworkContext}}{{template "svg_network_context" .NetworkContext}}{{end}}
+
+</svg>
+{{else}}
+<div class="alert alert-secondary">No process schematic available for this environment.</div>
+{{end}}
+{{end}}

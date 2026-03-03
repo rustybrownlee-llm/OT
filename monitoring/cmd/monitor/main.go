@@ -40,6 +40,7 @@ import (
 	"github.com/rustybrownlee/ot-simulator/monitoring/internal/eventstore"
 	"github.com/rustybrownlee/ot-simulator/monitoring/internal/inventory"
 	"github.com/rustybrownlee/ot-simulator/monitoring/internal/poller"
+	internalsyslog "github.com/rustybrownlee/ot-simulator/monitoring/internal/syslog"
 )
 
 const (
@@ -163,6 +164,21 @@ func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride stri
 		"path", cfg.EventDBPath,
 		"retention_days", cfg.EventRetentionDays)
 
+	// Create the syslog emitter when forwarding is enabled.
+	// The emitter is nil when disabled; makeEventHook handles the nil case.
+	var emitter *internalsyslog.Emitter
+	if cfg.Syslog.Enabled {
+		emitter, err = internalsyslog.New(cfg.Syslog)
+		if err != nil {
+			store.Close() //nolint:errcheck -- best-effort close on startup failure
+			return fmt.Errorf("open syslog emitter: %w", err)
+		}
+		slog.Info("syslog forwarding enabled",
+			"target", cfg.Syslog.Target,
+			"protocol", cfg.Syslog.Protocol,
+			"facility", cfg.Syslog.Facility)
+	}
+
 	// Load design library at startup (read-only after initialization).
 	lib, err := dashboard.LoadDesignLibrary(designDir)
 	if err != nil {
@@ -238,13 +254,7 @@ func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride stri
 	// Start the polling loop in a background goroutine.
 	p := poller.New(cfg, inv, state)
 	p.SetCycleHook(engine.RecordCycle)
-	p.SetEventHook(func(events []*eventstore.TransactionEvent) {
-		if err := store.InsertBatch(context.Background(), events); err != nil {
-			// [OT-REVIEW] FR-9: Availability over completeness. InsertBatch errors are
-			// logged but never crash the monitor or block polling.
-			slog.Warn("event store insert failed", "count", len(events), "error", err)
-		}
-	})
+	p.SetEventHook(makeEventHook(store, emitter))
 
 	go func() {
 		if err := p.Run(ctx); err != nil {
@@ -277,6 +287,13 @@ func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride stri
 		slog.Warn("dashboard server shutdown error", "error", err)
 	}
 
+	// Close syslog emitter before the event store to ensure no in-flight sends.
+	if emitter != nil {
+		if err := emitter.Close(); err != nil {
+			slog.Warn("syslog emitter close error", "error", err)
+		}
+	}
+
 	// Close event store after poller has stopped to ensure no in-flight inserts.
 	if err := store.Close(); err != nil {
 		slog.Warn("event store close error", "error", err)
@@ -284,6 +301,32 @@ func run(configPath, addrOverride, dashboardAddrOverride, designDirOverride stri
 
 	slog.Info("monitor exited cleanly")
 	return nil
+}
+
+// makeEventHook constructs the EventHook function that is called by the poller
+// for each batch of Modbus transaction events. The hook chains two operations:
+//
+//  1. Primary: persist events to the SQLite event store (InsertBatch). This is
+//     the authoritative record; errors are logged at Warn but never block polling.
+//
+//  2. Secondary: forward events to the syslog emitter when enabled. Syslog
+//     errors are logged at Warn and do not affect event store insertion. The
+//     emitter parameter may be nil when syslog is disabled.
+func makeEventHook(store *eventstore.Store, emitter *internalsyslog.Emitter) func([]*eventstore.TransactionEvent) {
+	return func(events []*eventstore.TransactionEvent) {
+		// Primary: persist to event store.
+		// [OT-REVIEW] FR-9: Availability over completeness. InsertBatch errors are
+		// logged but never crash the monitor or block polling.
+		if err := store.InsertBatch(context.Background(), events); err != nil {
+			slog.Warn("event store insert failed", "count", len(events), "error", err)
+		}
+		// Secondary: forward to syslog. Non-fatal; event store is the primary record.
+		if emitter != nil {
+			if err := emitter.Send(events); err != nil {
+				slog.Warn("syslog send failed", "count", len(events), "error", err)
+			}
+		}
+	}
 }
 
 // runPruner deletes events older than the retention window on an hourly schedule.

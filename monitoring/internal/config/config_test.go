@@ -361,3 +361,241 @@ max_alerts: -5
 	// Suppress unused variable lint.
 	_ = cfg
 }
+
+// TestSyslogDefaults verifies that syslog fields default to expected values
+// when absent from the YAML.
+func TestSyslogDefaults(t *testing.T) {
+	tmp := writeMinimalConfig(t)
+
+	cfg, err := config.Parse(tmp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Syslog.Enabled {
+		t.Error("Syslog.Enabled: want false by default, got true")
+	}
+	if cfg.Syslog.Protocol != "udp" {
+		t.Errorf("Syslog.Protocol: got %q, want %q", cfg.Syslog.Protocol, "udp")
+	}
+	if cfg.Syslog.Facility != "local0" {
+		t.Errorf("Syslog.Facility: got %q, want %q", cfg.Syslog.Facility, "local0")
+	}
+	if cfg.Syslog.Format != "cef" {
+		t.Errorf("Syslog.Format: got %q, want %q", cfg.Syslog.Format, "cef")
+	}
+}
+
+// TestSyslogParsed verifies that explicitly-set syslog fields are parsed correctly.
+func TestSyslogParsed(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "syslog.yaml")
+	content := `environments:
+  - name: "test"
+    address: "127.0.0.1"
+    endpoints:
+      - port: 5020
+        unit_id: 1
+syslog:
+  enabled: true
+  target: "192.168.1.100:514"
+  protocol: "tcp"
+  facility: "local2"
+  format: "cef"
+`
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Parse(tmp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !cfg.Syslog.Enabled {
+		t.Error("Syslog.Enabled: want true")
+	}
+	if cfg.Syslog.Target != "192.168.1.100:514" {
+		t.Errorf("Syslog.Target: got %q, want %q", cfg.Syslog.Target, "192.168.1.100:514")
+	}
+	if cfg.Syslog.Protocol != "tcp" {
+		t.Errorf("Syslog.Protocol: got %q, want %q", cfg.Syslog.Protocol, "tcp")
+	}
+	if cfg.Syslog.Facility != "local2" {
+		t.Errorf("Syslog.Facility: got %q, want %q", cfg.Syslog.Facility, "local2")
+	}
+	if cfg.Syslog.Format != "cef" {
+		t.Errorf("Syslog.Format: got %q, want %q", cfg.Syslog.Format, "cef")
+	}
+}
+
+// TestSyslogValidation_TargetRequired verifies that an empty target is rejected
+// when syslog is enabled.
+func TestSyslogValidation_TargetRequired(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "syslog-notarget.yaml")
+	content := `environments:
+  - name: "test"
+    address: "127.0.0.1"
+    endpoints:
+      - port: 5020
+        unit_id: 1
+syslog:
+  enabled: true
+  protocol: "udp"
+`
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := config.Parse(tmp)
+	if err == nil {
+		t.Fatal("expected error for missing target when enabled, got nil")
+	}
+}
+
+// TestSyslogValidation_RejectsURL verifies that a URL-style target ("://") is
+// rejected with a descriptive error pointing to the correct host:port format.
+func TestSyslogValidation_RejectsURL(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "syslog-url.yaml")
+	content := `environments:
+  - name: "test"
+    address: "127.0.0.1"
+    endpoints:
+      - port: 5020
+        unit_id: 1
+syslog:
+  enabled: true
+  target: "udp://localhost:514"
+  protocol: "udp"
+`
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := config.Parse(tmp)
+	if err == nil {
+		t.Fatal("expected error for URL-style target, got nil")
+	}
+}
+
+// TestSyslogValidation_InvalidProtocol verifies that unsupported protocol values
+// are rejected.
+func TestSyslogValidation_InvalidProtocol(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "syslog-proto.yaml")
+	content := `environments:
+  - name: "test"
+    address: "127.0.0.1"
+    endpoints:
+      - port: 5020
+        unit_id: 1
+syslog:
+  enabled: true
+  target: "localhost:514"
+  protocol: "tls"
+`
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := config.Parse(tmp)
+	if err == nil {
+		t.Fatal("expected error for unsupported protocol, got nil")
+	}
+}
+
+// TestSyslogValidation_InvalidFacility verifies that unrecognized facility names
+// are rejected when syslog is enabled.
+func TestSyslogValidation_InvalidFacility(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "syslog-facility.yaml")
+	content := `environments:
+  - name: "test"
+    address: "127.0.0.1"
+    endpoints:
+      - port: 5020
+        unit_id: 1
+syslog:
+  enabled: true
+  target: "localhost:514"
+  protocol: "udp"
+  facility: "invalid_facility"
+`
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := config.Parse(tmp)
+	if err == nil {
+		t.Fatal("expected error for invalid facility name, got nil")
+	}
+}
+
+// TestSyslogValidation_InvalidFormat verifies that unsupported format values
+// are rejected.
+func TestSyslogValidation_InvalidFormat(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "syslog-format.yaml")
+	content := `environments:
+  - name: "test"
+    address: "127.0.0.1"
+    endpoints:
+      - port: 5020
+        unit_id: 1
+syslog:
+  enabled: true
+  target: "localhost:514"
+  protocol: "udp"
+  format: "json"
+`
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := config.Parse(tmp)
+	if err == nil {
+		t.Fatal("expected error for unsupported format, got nil")
+	}
+}
+
+// TestSyslogDisabled_NoValidation verifies that a disabled syslog block with an
+// invalid target does not trigger validation errors (validation is skipped when
+// disabled).
+func TestSyslogDisabled_NoValidation(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "syslog-disabled.yaml")
+	content := `environments:
+  - name: "test"
+    address: "127.0.0.1"
+    endpoints:
+      - port: 5020
+        unit_id: 1
+syslog:
+  enabled: false
+  target: ""
+`
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Parse(tmp)
+	if err != nil {
+		t.Fatalf("unexpected error for disabled syslog: %v", err)
+	}
+	if cfg.Syslog.Enabled {
+		t.Error("Syslog.Enabled: want false")
+	}
+}
+
+// writeMinimalConfig writes a minimal valid config YAML to a temp file and
+// returns the path. Used by multiple test functions to avoid repetition.
+func writeMinimalConfig(t *testing.T) string {
+	t.Helper()
+	tmp := filepath.Join(t.TempDir(), "minimal.yaml")
+	content := `environments:
+  - name: "test"
+    address: "127.0.0.1"
+    endpoints:
+      - port: 5020
+        unit_id: 1
+`
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return tmp
+}

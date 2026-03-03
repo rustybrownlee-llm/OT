@@ -28,6 +28,23 @@ type Config struct {
 	// Event store configuration (SOW-027.0).
 	EventDBPath        string `yaml:"event_db_path"`        // default: "data/events.db"
 	EventRetentionDays int    `yaml:"event_retention_days"` // default: 7, minimum: 1
+
+	// Syslog forwarding configuration (SOW-031.0).
+	Syslog SyslogConfig `yaml:"syslog"`
+}
+
+// SyslogConfig holds syslog forwarding configuration.
+// When Enabled is false, no connection is opened and no events are forwarded.
+//
+// [OT-REVIEW] CEF over plaintext UDP/TCP is acceptable for lab environments.
+// Production OT environments would use TLS-encrypted syslog (RFC 5425) or a
+// dedicated log shipper. The educational value is in the CEF format, not transport security.
+type SyslogConfig struct {
+	Enabled  bool   `yaml:"enabled"`  // default: false
+	Target   string `yaml:"target"`   // host:port format (e.g., "localhost:514"), NOT a URL
+	Protocol string `yaml:"protocol"` // "udp" or "tcp" (default: "udp")
+	Facility string `yaml:"facility"` // syslog facility name (default: "local0")
+	Format   string `yaml:"format"`   // "cef" -- only supported format in Beta 0.6
 }
 
 // Environment groups a set of Modbus endpoints behind a single IP address.
@@ -65,6 +82,7 @@ type rawConfig struct {
 	MaxAlerts              int           `yaml:"max_alerts"`
 	EventDBPath            string        `yaml:"event_db_path"`
 	EventRetentionDays     *int          `yaml:"event_retention_days"`
+	Syslog                 SyslogConfig  `yaml:"syslog"`
 }
 
 // defaults applied when config fields are zero-valued.
@@ -85,6 +103,11 @@ const (
 	defaultEventDBPath        = "data/events.db"
 	defaultEventRetentionDays = 7
 	minEventRetentionDays     = 1
+
+	// Syslog defaults (SOW-031.0).
+	defaultSyslogProtocol = "udp"
+	defaultSyslogFacility = "local0"
+	defaultSyslogFormat   = "cef"
 )
 
 // PROTOTYPE-DEBT: [td-config-028] monitor.yaml duplicates endpoint knowledge that also
@@ -127,6 +150,7 @@ func fromRaw(raw rawConfig) *Config {
 		RingBufferSize:         raw.RingBufferSize,
 		MaxAlerts:              raw.MaxAlerts,
 		EventDBPath:            raw.EventDBPath,
+		Syslog:                 raw.Syslog,
 	}
 
 	// Preserve explicitly-set values; do NOT apply defaults yet.
@@ -176,6 +200,15 @@ func applyDefaults(cfg *Config, raw rawConfig) {
 	if raw.EventRetentionDays == nil {
 		cfg.EventRetentionDays = defaultEventRetentionDays
 	}
+	if cfg.Syslog.Protocol == "" {
+		cfg.Syslog.Protocol = defaultSyslogProtocol
+	}
+	if cfg.Syslog.Facility == "" {
+		cfg.Syslog.Facility = defaultSyslogFacility
+	}
+	if cfg.Syslog.Format == "" {
+		cfg.Syslog.Format = defaultSyslogFormat
+	}
 }
 
 // Validate checks that required fields are present and values are in range.
@@ -207,7 +240,78 @@ func (cfg *Config) Validate() error {
 		}
 	}
 
+	if err := validateSyslog(cfg.Syslog); err != nil {
+		return fmt.Errorf("syslog: %w", err)
+	}
+
 	return nil
+}
+
+// validateSyslog checks syslog configuration fields.
+// Validation only applies strict rules when enabled=true, but format is always
+// validated if explicitly set to a non-default value.
+func validateSyslog(s SyslogConfig) error {
+	if !s.Enabled {
+		// Even when disabled, reject obviously wrong format values to catch
+		// configuration mistakes before the operator enables forwarding.
+		if s.Format != "" && s.Format != defaultSyslogFormat {
+			return fmt.Errorf("format %q is not supported; only %q is accepted in Beta 0.6",
+				s.Format, defaultSyslogFormat)
+		}
+		return nil
+	}
+
+	if s.Target == "" {
+		return fmt.Errorf("target is required when enabled=true")
+	}
+
+	// [OT-REVIEW] Real syslog configuration (rsyslog, syslog-ng) separates
+	// transport from address. Reject URL-style values like "udp://localhost:514"
+	// which follow IT log-shipper conventions (Logstash/Fluentd), not syslog.
+	if containsURLScheme(s.Target) {
+		return fmt.Errorf("target must be host:port format, not a URL (e.g., 'localhost:514' not 'udp://localhost:514')")
+	}
+
+	if s.Protocol != "udp" && s.Protocol != "tcp" {
+		return fmt.Errorf("protocol must be %q or %q, got %q", "udp", "tcp", s.Protocol)
+	}
+
+	if s.Format != defaultSyslogFormat {
+		return fmt.Errorf("format %q is not supported; only %q is accepted in Beta 0.6",
+			s.Format, defaultSyslogFormat)
+	}
+
+	if !isKnownFacility(s.Facility) {
+		return fmt.Errorf("facility %q is not a recognized syslog facility name", s.Facility)
+	}
+
+	return nil
+}
+
+// knownFacilities lists recognized syslog facility names. The local0-local7
+// range is recommended for OT monitoring events. Standard facilities (kern,
+// user, etc.) are accepted but not recommended for OT use.
+var knownFacilities = map[string]struct{}{
+	"kern": {}, "user": {}, "mail": {}, "daemon": {}, "auth": {},
+	"syslog": {}, "lpr": {}, "news": {}, "uucp": {}, "cron": {},
+	"local0": {}, "local1": {}, "local2": {}, "local3": {},
+	"local4": {}, "local5": {}, "local6": {}, "local7": {},
+}
+
+// isKnownFacility reports whether name is a recognized syslog facility.
+func isKnownFacility(name string) bool {
+	_, ok := knownFacilities[name]
+	return ok
+}
+
+// containsURLScheme reports whether s contains a URL scheme separator "://".
+func containsURLScheme(s string) bool {
+	for i := 0; i+2 < len(s); i++ {
+		if s[i] == ':' && s[i+1] == '/' && s[i+2] == '/' {
+			return true
+		}
+	}
+	return false
 }
 
 // validateEndpoints checks that each endpoint in an environment is well-formed.

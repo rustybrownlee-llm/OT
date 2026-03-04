@@ -47,6 +47,17 @@
         .era-2010s  { background-color: #3399ff; color: white; }
         .era-2020s  { background-color: #0066cc; color: white; }
 
+        /* SVG era badges: SVG uses fill, not background-color/color.
+           Era class is on the parent <g> so we target rect and text separately. */
+        svg .era-1990s > rect { fill: #b3d9ff; }
+        svg .era-1990s > text { fill: #0d3b66; }
+        svg .era-2000s > rect { fill: #66b3ff; }
+        svg .era-2000s > text { fill: #0d3b66; }
+        svg .era-2010s > rect { fill: #3399ff; }
+        svg .era-2010s > text { fill: white; }
+        svg .era-2020s > rect { fill: #0066cc; }
+        svg .era-2020s > text { fill: white; }
+
         /* Topology: device nodes */
         .device-node        { border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; background: white; }
         .device-serial      { border-style: dashed; }

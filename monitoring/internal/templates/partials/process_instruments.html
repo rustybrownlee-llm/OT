@@ -30,10 +30,11 @@
 {{/* Small circle at equipment connection point (leader line origin) */}}
 <circle cx="{{$dotX}}" cy="{{$dotY}}" r="3"
         fill="none" stroke="#adb5bd" stroke-width="0.75"/>
-{{/* Instrument value text -- stable ID for HTMX OOB swap */}}
+{{/* Instrument value text -- stable ID for HTMX OOB swap.
+     Uses style= instead of fill= because Bootstrap CSS overrides SVG presentation attributes. */}}
 <text id="inst-{{$inst.Tag}}"
       x="{{f1 $inst.X}}" y="{{f1 $inst.Y}}"
-      font-size="11" fill="{{if $inst.StatusColor}}{{$inst.StatusColor}}{{else}}#28a745{{end}}">{{if $inst.Value}}{{$inst.Value}}{{else}}--{{end}}</text>
+      font-size="11" style="fill:{{if $inst.StatusColor}}{{$inst.StatusColor}}{{else if $inst.Value}}#28a745{{else}}#6c757d{{end}}">{{if $inst.Value}}{{$inst.Value}}{{else}}--{{end}}</text>
 {{/* ISA tag label in grey, slightly offset to the right */}}
 <text x="{{f1 (add $inst.X 2)}}" y="{{f1 (add $inst.Y 10)}}"
       font-size="8" fill="#6c757d">{{$inst.Tag}}</text>
@@ -47,6 +48,6 @@
 {{range .}}
 <text id="inst-{{.Tag}}" hx-swap-oob="true"
       x="{{f1 .X}}" y="{{f1 .Y}}"
-      font-size="11" fill="{{if .StatusColor}}{{.StatusColor}}{{else}}#28a745{{end}}">{{if .Value}}{{.Value}}{{else}}--{{end}}</text>
+      font-size="11" style="fill:{{if .StatusColor}}{{.StatusColor}}{{else if .Value}}#28a745{{else}}#6c757d{{end}}">{{if .Value}}{{.Value}}{{else}}--{{end}}</text>
 {{end}}
 {{end}}

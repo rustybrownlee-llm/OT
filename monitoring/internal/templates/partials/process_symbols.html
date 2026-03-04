@@ -249,11 +249,10 @@
 {{/* svg_era_badge: Era year pill overlay. Uses topology era-badge CSS classes. */}}
 {{define "svg_era_badge"}}
 {{if .Era}}
-<g class="era-badge-svg">
+<g class="era-badge-svg {{.EraClass}}">
   <rect x="{{f1 (sub .X (half .Width))}}"
         y="{{f1 (sub (add .Y (half .Height)) 14)}}"
-        width="34" height="12" rx="3" ry="3"
-        class="era-badge {{.EraClass}}"/>
+        width="34" height="12" rx="3" ry="3"/>
   <text x="{{f1 (add (sub .X (half .Width)) 17)}}"
         y="{{f1 (sub (add .Y (half .Height)) 4)}}"
         text-anchor="middle" font-size="8">{{.Era}}</text>
